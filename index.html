@@ -5414,7 +5414,7 @@ function bindCellEvents(cellDiv, isTeam, targetId, targetName, dateStr, currentT
         if (clickTimer) {
             clearTimeout(clickTimer);
             clickTimer = null;
-            // DOUBLE CLIC : détail multi-tâches (agent) ou modal tâche
+            // DOUBLE CLIC : liste des tâches du jour (consultation / modification)
             if (!isTeam && typeof openCellTasksDetailModal === 'function') {
                 openCellTasksDetailModal(targetId, targetName, dateStr);
             } else if (typeof canModifyPlanning === 'function' ? canModifyPlanning() : !isReadOnly) {
@@ -5423,9 +5423,21 @@ function bindCellEvents(cellDiv, isTeam, targetId, targetName, dateStr, currentT
         } else {
             clickTimer = setTimeout(() => {
                 clickTimer = null;
-                // SIMPLE CLIC : agents → détail multi-tâches (même sans mode édition)
-                if (!isTeam && typeof openCellTasksDetailModal === 'function') {
-                    openCellTasksDetailModal(targetId, targetName, dateStr);
+                // SIMPLE CLIC agent :
+                // - Mode édition (main) → ajouter une NOUVELLE tâche (commentaires à zéro)
+                // - Sinon → détail des tâches du jour
+                if (!isTeam) {
+                    const editOn = (typeof canModifyPlanning === 'function') ? canModifyPlanning() : false;
+                    if (editOn && typeof openAddTaskFromCellDetail === 'function') {
+                        cellTasksDetailContext = {
+                            agentId: targetId,
+                            agentName: targetName || targetId,
+                            dateStr: dateStr
+                        };
+                        openAddTaskFromCellDetail();
+                    } else if (typeof openCellTasksDetailModal === 'function') {
+                        openCellTasksDetailModal(targetId, targetName, dateStr);
+                    }
                 } else if (typeof canModifyPlanning === 'function' ? canModifyPlanning() : !isReadOnly) {
                     openTaskModal(isTeam, targetId, targetName, dateStr, currentTaskCode, currentDesc);
                 }
@@ -9888,11 +9900,24 @@ function purgeReplacementArchives() {
             taskModalMultiMode = 'append';
             const list = getAgentDayTaskList(ctx.agentId, ctx.dateStr);
             const primary = list.length ? list[0].code : 'R';
-            // Commentaires toujours réinitialisés pour une nouvelle saisie
+            // Commentaires TOUJOURS réinitialisés (nouvelle tâche, même si la case a déjà des tâches)
             openTaskModal(false, ctx.agentId, ctx.agentName, ctx.dateStr, primary, '');
             if (typeof clearStructuredTaskCommentInModal === 'function') {
                 clearStructuredTaskCommentInModal();
             }
+            // Sécurité : vider explicitement chaque champ
+            try {
+                const t = document.getElementById('taskRdvTime');
+                const a = document.getElementById('taskRdvAddress');
+                const p = document.getElementById('taskRdvPhone');
+                const i = document.getElementById('taskRdvIntervention');
+                const h = document.getElementById('taskModalDescription');
+                if (t) t.value = '';
+                if (a) a.value = '';
+                if (p) p.value = '';
+                if (i) i.value = '';
+                if (h) h.value = '';
+            } catch (e) {}
             try {
                 const h2 = document.querySelector('#taskModal h2');
                 if (h2) {
