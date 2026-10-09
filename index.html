@@ -10312,9 +10312,115 @@ function purgeReplacementArchives() {
             document.body.appendChild(overlay);
         }
 
-        function retrieveAndDeleteEndPhoto(index) {
+
+        /**
+         * Construit un document Word (HTML compatible Word) pour une intervention :
+         * détails RDV, commentaire de fin, photos + commentaire sous chaque photo.
+         */
+        function buildInterventionWordHtml(agentName, dateStr, entry) {
+            function esc(s) {
+                return String(s || '')
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;');
+            }
+            const code = entry.code || '';
+            const tDef = (typeof TASKS !== 'undefined' && TASKS[code]) ? TASKS[code] : {};
+            const label = tDef.label || code;
+            const dateLabel = (typeof formatDateStrDisplay === 'function')
+                ? formatDateStrDisplay(dateStr)
+                : dateStr;
+            const f = (typeof parseStructuredTaskComment === 'function')
+                ? parseStructuredTaskComment(entry)
+                : {
+                    rdvTime: entry.rdvTime || '',
+                    rdvAddress: entry.rdvAddress || '',
+                    rdvPhone: entry.rdvPhone || '',
+                    rdvIntervention: entry.rdvIntervention || ''
+                };
+            const photos = normalizeEndPhotosList(entry.endPhotos || []);
+
+            let body = '';
+            body += '<h1 style="color:#2c3e50;border-bottom:2px solid #3498db;padding-bottom:8px;">Compte-rendu d\'intervention</h1>';
+            body += '<table style="width:100%;border-collapse:collapse;margin:12px 0;font-size:12pt;">';
+            body += '<tr><td style="padding:6px;font-weight:bold;width:180px;background:#f4f6f7;">Agent</td><td style="padding:6px;">' + esc(agentName) + '</td></tr>';
+            body += '<tr><td style="padding:6px;font-weight:bold;background:#f4f6f7;">Date</td><td style="padding:6px;">' + esc(dateLabel) + '</td></tr>';
+            body += '<tr><td style="padding:6px;font-weight:bold;background:#f4f6f7;">T\u00e2che</td><td style="padding:6px;"><strong>' + esc(code) + '</strong> \u2014 ' + esc(label) + '</td></tr>';
+            body += '<tr><td style="padding:6px;font-weight:bold;background:#f4f6f7;">Heure du RDV</td><td style="padding:6px;">' + esc(f.rdvTime || '\u2014') + '</td></tr>';
+            body += '<tr><td style="padding:6px;font-weight:bold;background:#f4f6f7;">Adresse du RDV</td><td style="padding:6px;">' + esc(f.rdvAddress || '\u2014') + '</td></tr>';
+            body += '<tr><td style="padding:6px;font-weight:bold;background:#f4f6f7;">T\u00e9l\u00e9phone</td><td style="padding:6px;">' + esc(f.rdvPhone || '\u2014') + '</td></tr>';
+            body += '<tr><td style="padding:6px;font-weight:bold;background:#f4f6f7;vertical-align:top;">Description intervention</td><td style="padding:6px;white-space:pre-wrap;">' + esc(f.rdvIntervention || '\u2014') + '</td></tr>';
+            body += '<tr><td style="padding:6px;font-weight:bold;background:#f4f6f7;">Statut</td><td style="padding:6px;">' + (entry.completed ? 'Termin\u00e9' : 'En cours') + '</td></tr>';
+            body += '</table>';
+
+            body += '<h2 style="color:#1e8449;margin-top:24px;">Commentaire de fin d\'intervention</h2>';
+            body += '<p style="white-space:pre-wrap;background:#eefaf3;border:1px solid #a9dfbf;padding:12px;border-radius:6px;">'
+                + (entry.endComment && String(entry.endComment).trim()
+                    ? esc(entry.endComment)
+                    : '<em style="color:#888;">Aucun commentaire de fin</em>')
+                + '</p>';
+
+            body += '<h2 style="color:#8e44ad;margin-top:24px;">Photos (' + photos.length + ')</h2>';
+            if (!photos.length) {
+                body += '<p><em style="color:#888;">Aucune photo</em></p>';
+            } else {
+                photos.forEach(function(ph, i) {
+                    body += '<div style="margin:16px 0 24px 0;page-break-inside:avoid;border:1px solid #ddd;padding:12px;border-radius:8px;">';
+                    body += '<p style="font-weight:bold;margin:0 0 8px 0;">Photo ' + (i + 1) + '</p>';
+                    if (ph.src) {
+                        body += '<img src="' + ph.src + '" alt="Photo ' + (i + 1) + '" style="max-width:520px;max-height:400px;display:block;margin:8px 0;border:1px solid #ccc;" />';
+                    }
+                    body += '<p style="margin:8px 0 0 0;"><strong>Commentaire photo :</strong><br/>'
+                        + '<span style="white-space:pre-wrap;">'
+                        + (ph.comment && String(ph.comment).trim()
+                            ? esc(ph.comment)
+                            : '<em style="color:#888;">Aucun commentaire</em>')
+                        + '</span></p>';
+                    body += '</div>';
+                });
+            }
+
+            body += '<p style="margin-top:32px;font-size:10pt;color:#888;">Document g\u00e9n\u00e9r\u00e9 le '
+                + esc(new Date().toLocaleString('fr-FR'))
+                + ' \u2014 Planning op\u00e9rationnel</p>';
+
+            return (
+                '<html xmlns:o="urn:schemas-microsoft-com:office:office" '
+                + 'xmlns:w="urn:schemas-microsoft-com:office:word" '
+                + 'xmlns="http://www.w3.org/TR/REC-html40">'
+                + '<head><meta charset="utf-8">'
+                + '<title>Intervention ' + esc(code) + ' ' + esc(dateLabel) + '</title>'
+                + '<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->'
+                + '<style>body{font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#222;}'
+                + 'h1{font-size:18pt;}h2{font-size:14pt;}</style></head>'
+                + '<body>' + body + '</body></html>'
+            );
+        }
+
+        function downloadInterventionWordDoc(agentName, dateStr, entry, fileSuffix) {
+            const html = buildInterventionWordHtml(agentName, dateStr, entry);
+            const code = (entry && entry.code) ? String(entry.code) : 'tache';
+            const safeAgent = String(agentName || 'agent').replace(/[^a-zA-Z0-9_-]+/g, '_');
+            const safeCode = code.replace(/[^a-zA-Z0-9_-]+/g, '_');
+            const suffix = fileSuffix ? ('_' + fileSuffix) : '';
+            const fileName = 'Intervention_' + safeAgent + '_' + dateStr + '_' + safeCode + suffix + '.doc';
+            const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(function() { URL.revokeObjectURL(url); }, 2000);
+            return fileName;
+        }
+
+                function retrieveAndDeleteEndPhoto(index) {
             if (isReadOnly) {
-                alert('R\u00e9serv\u00e9 aux RE et Administrateurs.');
+                alert('Réservé aux RE et Administrateurs.');
                 return;
             }
             const ctx = cellTasksDetailContext;
@@ -10323,10 +10429,32 @@ function purgeReplacementArchives() {
             if (index < 0 || index >= list.length) return;
             const photos = normalizeEndPhotosList(list[index].endPhotos || []);
             if (!photos.length) {
-                alert('Aucune photo \u00e0 r\u00e9cup\u00e9rer pour cette t\u00e2che.');
+                alert('Aucune photo à récupérer pour cette tâche.');
                 return;
             }
-            if (!confirm('R\u00e9cup\u00e9rer ' + photos.length + ' photo(s) ?\n\n1. T\u00e9l\u00e9chargement local\n2. Suppression de la base\n\nLe commentaire texte de l\'intervention est conserv\u00e9.')) return;
+            if (!confirm(
+                'Récupérer ' + photos.length + ' photo(s) ?\n\n'
+                + '1. Génération d\'un document Word (détails intervention + photos)\n'
+                + '2. Téléchargement des photos individuellement\n'
+                + '3. Suppression des photos de la base\n\n'
+                + 'Le commentaire texte de l\'intervention est conservé.'
+            )) return;
+
+            // 1) Document Word avec détails + photos commentées
+            try {
+                downloadInterventionWordDoc(
+                    ctx.agentName || ctx.agentId,
+                    ctx.dateStr,
+                    list[index],
+                    String(index + 1)
+                );
+            } catch (e) {
+                console.error(e);
+                alert('Échec de la génération du document Word : ' + (e && e.message ? e.message : e));
+                return;
+            }
+
+            // 2) Photos individuelles (optionnel, en complément du Word)
             const code = list[index].code || 'tache';
             const safeAgent = String(ctx.agentName || ctx.agentId).replace(/[^a-zA-Z0-9_-]+/g, '_');
             photos.forEach(function(photo, n) {
@@ -10337,9 +10465,11 @@ function purgeReplacementArchives() {
                     a.download = fileName;
                     a.style.display = 'none';
                     document.body.appendChild(a);
-                    setTimeout(function() { a.click(); document.body.removeChild(a); }, n * 350);
+                    setTimeout(function() { a.click(); document.body.removeChild(a); }, 400 + n * 350);
                 } catch (e) {}
             });
+
+            // 3) Suppression base
             list[index].endPhotos = [];
             setAgentDayTaskList(ctx.agentId, ctx.dateStr, list);
             delete pendingEndPhotos[index];
@@ -10347,51 +10477,83 @@ function purgeReplacementArchives() {
             if (typeof renderAll === 'function') renderAll(true);
             setTimeout(function() {
                 if (typeof renderCellTasksDetailList === 'function') renderCellTasksDetailList();
-                alert(photos.length + ' photo(s) t\u00e9l\u00e9charg\u00e9e(s) et supprim\u00e9e(s) de la base.');
-            }, photos.length * 350 + 200);
+                alert(
+                    'Document Word généré.\n'
+                    + photos.length + ' photo(s) téléchargée(s) et supprimée(s) de la base.\n'
+                    + 'Le commentaire de fin d\'intervention est conservé.'
+                );
+            }, 400 + photos.length * 350 + 300);
         }
 
-        function retrieveAndDeleteAllEndPhotosForDay() {
+                function retrieveAndDeleteAllEndPhotosForDay() {
             if (isReadOnly) {
-                alert('R\u00e9serv\u00e9 aux RE et Administrateurs.');
+                alert('Réservé aux RE et Administrateurs.');
                 return;
             }
             const ctx = cellTasksDetailContext;
             if (!ctx || !ctx.agentId || !ctx.dateStr) return;
             const list = getAgentDayTaskList(ctx.agentId, ctx.dateStr);
-            let total = 0;
-            list.forEach(function(e) {
-                total += normalizeEndPhotosList(e && e.endPhotos).length;
+            const withPhotos = [];
+            list.forEach(function(e, i) {
+                const ph = normalizeEndPhotosList(e && e.endPhotos);
+                if (ph.length) withPhotos.push({ index: i, entry: e, photos: ph });
             });
-            if (!total) {
-                alert('Aucune photo \u00e0 r\u00e9cup\u00e9rer pour ce jour.');
+            if (!withPhotos.length) {
+                alert('Aucune photo à récupérer pour ce jour.');
                 return;
             }
-            if (!confirm('R\u00e9cup\u00e9rer ' + total + ' photo(s) de ce jour ?\n\nT\u00e9l\u00e9chargement puis suppression de la base.\nCommentaires d\'intervention conserv\u00e9s.')) return;
-            const safeAgent = String(ctx.agentName || ctx.agentId).replace(/[^a-zA-Z0-9_-]+/g, '_');
+            const total = withPhotos.reduce(function(n, x) { return n + x.photos.length; }, 0);
+            if (!confirm(
+                'Récupérer ' + total + ' photo(s) sur ' + withPhotos.length + ' intervention(s) ?\n\n'
+                + '1. Un document Word par intervention\n'
+                + '2. Téléchargement des photos\n'
+                + '3. Suppression des photos de la base\n\n'
+                + 'Les commentaires texte sont conservés.'
+            )) return;
+
             let delay = 0;
-            list.forEach(function(e, i) {
-                const photos = normalizeEndPhotosList(e.endPhotos);
-                const code = e.code || 'tache';
-                photos.forEach(function(photo, n) {
-                    const fileName = 'photo_' + safeAgent + '_' + ctx.dateStr + '_' + code + '_' + (i + 1) + '_' + (n + 1) + '.jpg';
+            withPhotos.forEach(function(item, k) {
+                setTimeout(function() {
                     try {
-                        const a = document.createElement('a');
-                        a.href = photo.src; a.download = fileName; a.style.display = 'none';
-                        document.body.appendChild(a);
-                        setTimeout(function() { a.click(); document.body.removeChild(a); }, delay);
-                        delay += 350;
-                    } catch (err) {}
+                        downloadInterventionWordDoc(
+                            ctx.agentName || ctx.agentId,
+                            ctx.dateStr,
+                            item.entry,
+                            String(item.index + 1)
+                        );
+                    } catch (e) { console.error(e); }
+                }, delay);
+                delay += 500;
+                item.photos.forEach(function(photo, n) {
+                    const code = item.entry.code || 'tache';
+                    const safeAgent = String(ctx.agentName || ctx.agentId).replace(/[^a-zA-Z0-9_-]+/g, '_');
+                    const fileName = 'photo_' + safeAgent + '_' + ctx.dateStr + '_' + code + '_' + (item.index + 1) + '_' + (n + 1) + '.jpg';
+                    setTimeout(function() {
+                        try {
+                            const a = document.createElement('a');
+                            a.href = photo.src;
+                            a.download = fileName;
+                            a.style.display = 'none';
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                        } catch (err) {}
+                    }, delay);
+                    delay += 350;
                 });
-                e.endPhotos = [];
+                list[item.index].endPhotos = [];
             });
+
             setAgentDayTaskList(ctx.agentId, ctx.dateStr, list);
             pendingEndPhotos = {};
             if (typeof renderAll === 'function') renderAll(true);
             setTimeout(function() {
                 if (typeof renderCellTasksDetailList === 'function') renderCellTasksDetailList();
-                alert(total + ' photo(s) t\u00e9l\u00e9charg\u00e9e(s) et supprim\u00e9e(s) de la base.');
-            }, delay + 200);
+                alert(
+                    withPhotos.length + ' document(s) Word généré(s).\n'
+                    + total + ' photo(s) téléchargée(s) et supprimée(s) de la base.'
+                );
+            }, delay + 400);
         }
 
         function saveAgentDayTaskEndComment(index) {
