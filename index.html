@@ -1425,7 +1425,7 @@
     </div>
 
     <!-- Modale Sélection & Attribution de Tâche -->
-    <div class="modal" id="taskModal">
+    <div class="modal" id="taskModal" style="z-index:10070;">
         <div class="modal-content" style="width: 500px;">
             <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:4px;">
                 <h2 style="margin:0;">Affecter une Tâche</h2>
@@ -5392,7 +5392,7 @@ function bindCellEvents(cellDiv, isTeam, targetId, targetName, dateStr, currentT
         if (clickTimer) {
             clearTimeout(clickTimer);
             clickTimer = null;
-            // DOUBLE CLIC : liste des tâches du jour (consultation / modification)
+            // DOUBLE CLIC agent : même comportement = liste des activités
             if (!isTeam && typeof openCellTasksDetailModal === 'function') {
                 openCellTasksDetailModal(targetId, targetName, dateStr);
             } else if (typeof canModifyPlanning === 'function' ? canModifyPlanning() : !isReadOnly) {
@@ -9723,10 +9723,12 @@ function purgeReplacementArchives() {
             const addBtn = document.getElementById('cellTasksDetailAddBtn');
             if (!listEl || !ctx) return;
 
-            const canEdit = (typeof canEditAgentDayTasks === 'function')
-                ? canEditAgentDayTasks()
-                : ((typeof canModifyPlanning === 'function') ? canModifyPlanning() : !isReadOnly);
-            if (addBtn) addBtn.style.display = canEdit ? 'inline-block' : 'none';
+            // Bouton « + Ajouter une tâche » : uniquement RE et Admin (!isReadOnly)
+            const canEdit = !isReadOnly;
+            if (addBtn) {
+                addBtn.style.display = canEdit ? 'inline-block' : 'none';
+                addBtn.disabled = !canEdit;
+            }
 
             // Bandeau jour : vert si aujourd'hui, orange sinon
             const modal = document.getElementById('cellTasksDetailModal');
@@ -9858,55 +9860,41 @@ function purgeReplacementArchives() {
                 alert('Contexte de case manquant. Rouvrez la fenêtre des tâches du jour.');
                 return;
             }
-            // RE / Admin uniquement
+            // Uniquement RE et Admin
             if (isReadOnly) {
-                alert('Lecture seule : vous ne pouvez pas ajouter de tâche.');
+                alert('Seuls les RE et Administrateurs peuvent ajouter une tâche.');
                 return;
             }
-            // Mode ajout d'une tâche supplémentaire
             taskModalMultiMode = 'append';
             const list = (typeof getAgentDayTaskList === 'function')
                 ? getAgentDayTaskList(ctx.agentId, ctx.dateStr)
                 : [];
             const primary = list.length ? list[0].code : 'R';
 
-            // Ouvrir le sélecteur de tâches + commentaires structurés (vides)
-            if (typeof openTaskModal === 'function') {
-                openTaskModal(false, ctx.agentId, ctx.agentName || ctx.agentId, ctx.dateStr, primary, '');
-            } else {
-                alert('Ouverture de la fenêtre de tâche indisponible.');
-                return;
-            }
-            // Forcer commentaires à zéro après ouverture
-            setTimeout(function() {
+            // Ouvrir avec commentaires vides
+            openTaskModal(false, ctx.agentId, ctx.agentName || ctx.agentId, ctx.dateStr, primary, '');
+
+            function wipeComments() {
                 if (typeof clearStructuredTaskCommentInModal === 'function') {
                     clearStructuredTaskCommentInModal();
                 }
-                const t = document.getElementById('taskRdvTime');
-                const a = document.getElementById('taskRdvAddress');
-                const p = document.getElementById('taskRdvPhone');
-                const i = document.getElementById('taskRdvIntervention');
-                const h = document.getElementById('taskModalDescription');
-                if (t) t.value = '';
-                if (a) a.value = '';
-                if (p) p.value = '';
-                if (i) i.value = '';
-                if (h) h.value = '';
-                // Réassurer le mode append (openTaskModal ne doit pas l'effacer)
+                ['taskRdvTime', 'taskRdvAddress', 'taskRdvPhone', 'taskRdvIntervention', 'taskModalDescription'].forEach(function(id) {
+                    const el = document.getElementById(id);
+                    if (el) el.value = '';
+                });
                 taskModalMultiMode = 'append';
                 const h2 = document.querySelector('#taskModal h2');
                 if (h2) {
-                    h2.textContent = list.length
-                        ? 'Ajouter une tâche (en plus)'
-                        : 'Affecter une tâche';
+                    h2.textContent = list.length ? 'Ajouter une tâche (en plus)' : 'Affecter une tâche';
                 }
-                // Afficher la modale au-dessus du détail
                 const tm = document.getElementById('taskModal');
                 if (tm) {
-                    tm.style.display = 'flex';
                     tm.style.zIndex = '10070';
+                    tm.style.display = 'flex';
                 }
-            }, 0);
+            }
+            wipeComments();
+            setTimeout(wipeComments, 10);
         }
 
         function editAgentDayTaskFromDetail(index) {
@@ -10016,7 +10004,11 @@ function purgeReplacementArchives() {
                 renderTaskPickerGrid('presences');
             }
 
-            document.getElementById('taskModal').style.display = 'flex';
+            const tmEl = document.getElementById('taskModal');
+            if (tmEl) {
+                tmEl.style.zIndex = '10070';
+                tmEl.style.display = 'flex';
+            }
         }
 
         // sert à fermer la fenêtre de modification des tâches et à remettre à zéro les variables de contexte utilisées pendant l'édition.
