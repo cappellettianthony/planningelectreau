@@ -868,6 +868,30 @@
             padding: 16px 8px;
             font-size: 0.85rem;
         }
+        #cellTasksDetailModal .ctd-header-today {
+            background: #d5f5e3 !important;
+            border-bottom-color: #27ae60 !important;
+        }
+        #cellTasksDetailModal .ctd-header-not-today {
+            background: #fdebd0 !important;
+            border-bottom-color: #e67e22 !important;
+        }
+        #cellTasksDetailModal .ctd-banner-today {
+            background: #27ae60;
+            color: #fff;
+            font-size: 0.8rem;
+            font-weight: 700;
+            padding: 6px 14px;
+            text-align: center;
+        }
+        #cellTasksDetailModal .ctd-banner-not-today {
+            background: #e67e22;
+            color: #fff;
+            font-size: 0.8rem;
+            font-weight: 700;
+            padding: 6px 14px;
+            text-align: center;
+        }
         .task-cell:hover {
             transform: scale(1.03);
             box-shadow: 0 0 4px rgba(0,0,0,0.3);
@@ -1411,8 +1435,7 @@
             <p style="font-size: 0.85rem; margin-bottom: 12px; color: var(--primary);" id="taskModalTargetInfo"></p>
             
             <div class="task-modal-tabs" role="tablist" style="display:flex; gap:4px; flex-wrap:wrap; border-bottom:2px solid #ddd; margin-bottom:10px;">
-                <button type="button" class="task-modal-tab-btn" data-task-tab="presences" onclick="switchTaskModalTab('presences')" style="border:none;background:transparent;padding:8px 12px;cursor:pointer;font-weight:bold;font-size:0.8rem;color:#5d6d7e;border-bottom:3px solid transparent;margin-bottom:-2px;">Présences</button>
-                <button type="button" class="task-modal-tab-btn active" data-task-tab="remplacement" onclick="switchTaskModalTab('remplacement')" style="border:none;background:#eef6fc;padding:8px 12px;cursor:pointer;font-weight:bold;font-size:0.8rem;color:var(--accent);border-bottom:3px solid var(--accent);margin-bottom:-2px;">Remplacement</button>
+                <button type="button" class="task-modal-tab-btn active" data-task-tab="presences" onclick="switchTaskModalTab('presences')" style="border:none;background:#eef6fc;padding:8px 12px;cursor:pointer;font-weight:bold;font-size:0.8rem;color:var(--accent);border-bottom:3px solid var(--accent);margin-bottom:-2px;">Présences</button>
                 <button type="button" class="task-modal-tab-btn" data-task-tab="absences" onclick="switchTaskModalTab('absences')" style="border:none;background:transparent;padding:8px 12px;cursor:pointer;font-weight:bold;font-size:0.8rem;color:#5d6d7e;border-bottom:3px solid transparent;margin-bottom:-2px;">Absences</button>
             </div>
             <div id="taskPickerGrid" class="task-picker-grid"></div>
@@ -2575,6 +2598,8 @@ function normalizeSeenByAgents(val) {
  * @returns {Object} La fiche RPL normalisée (également stockée dans replacementSheets)
  */
 function ensureReplacementSheet(sheetKey) {
+    /* RPL DÉSACTIVÉ */ return { volunteers: [], seenBy: {}, deadlineDate: null };
+
     if (!replacementSheets || typeof replacementSheets !== 'object') {
         replacementSheets = {};
     }
@@ -2685,21 +2710,20 @@ function getMyAgentIds() {
 }
 
 /**
- * True si l'utilisateur peut voir toutes les équipes dans le planning.
- * - Option désactivée → tout le monde voit tout
- * - Admin ou RE → voient tout
- * - Agent lecture seule → uniquement si option désactivée
+ * True si l'utilisateur peut voir toutes les équipes / tous les agents.
+ * - Admin ou RE → voient tout le planning
+ * - Agent (lecture seule) → uniquement son équipe (roulement) et sa propre ligne
  */
 function canSeeAllTeams() {
-    if (!settings || !settings.restrictTeamVisibility) return true;
     if (isAdmin) return true;
     if (!isReadOnly) return true; // RE
-    return false;
+    return false; // Agent : vision restreinte
 }
 
 /**
  * Équipes visibles dans le tableau de planning pour l'utilisateur connecté.
- * N'affecte pas le panneau RPL ni « Se porter volontaire ».
+ * Agent : uniquement les équipes où il figure (via liaison e-mail).
+ * Admin / RE : toutes les équipes.
  */
 function getTeamsVisibleForCurrentUser() {
     const all = teams || [];
@@ -2713,6 +2737,17 @@ function getTeamsVisibleForCurrentUser() {
     });
 }
 
+/**
+ * True si l'agent courant peut afficher la ligne de cet agentId.
+ * Admin / RE : toujours true. Agent : uniquement ses propres agentIds liés.
+ */
+function canSeeAgentRow(agentId) {
+    if (canSeeAllTeams()) return true;
+    if (!agentId) return false;
+    const myIds = (typeof getMyAgentIds === 'function') ? getMyAgentIds() : [];
+    return myIds.indexOf(agentId) !== -1;
+}
+
 function getMyLinkedAgentId() {
     const ids = getMyAgentIds();
     return ids.length > 0 ? ids[0] : null;
@@ -2724,6 +2759,8 @@ function getMyLinkedAgentId() {
  * - "Vu" liste agents uniquement pour les agents liés à cet e-mail (paramétrage)
  */
 function markSheetAsSeen(sheetKey) {
+    /* RPL DÉSACTIVÉ */ return;
+
     if (!sheetKey || !currentUser || !currentUser.email) return;
     if (!planningRef) {
         console.error('markSheetAsSeen: planningRef indisponible (Firebase non initialisé)');
@@ -3072,6 +3109,15 @@ function markAgentSeenOnSheet(sheetKey, agentId) {
             return !isReadOnly && !!planningEditUnlocked;
         }
 
+        /**
+         * Admin / RE peuvent modifier les tâches d'un agent
+         * même sans avoir activé le bouton « main » d'édition du planning.
+         * Les agents en lecture seule ne peuvent pas.
+         */
+        function canEditAgentDayTasks() {
+            return !isReadOnly;
+        }
+
         function togglePlanningEditMode() {
             if (isReadOnly) return; // lecture seule pure : pas d'accès
             planningEditUnlocked = !planningEditUnlocked;
@@ -3387,6 +3433,8 @@ if (resetAckBtn) {
          * uniquement les fiches de remplacement (volontaires / vu).
          */
         function saveReplacementSheetsToFirebase() {
+            /* RPL DÉSACTIVÉ */ return;
+
             if (!planningRef) {
                 console.error("saveReplacementSheetsToFirebase: Firebase non initialisé");
                 return;
@@ -3759,6 +3807,8 @@ if (resetAckBtn) {
          * @param {number} [durationMs=2500]
          */
         function highlightRplCell(targetId, dateStr, durationMs) {
+    /* RPL DÉSACTIVÉ */ return;
+
             if (!targetId || !dateStr) return;
             const cells = document.querySelectorAll(
                 '.task-cell[data-target-id="' + targetId + '"][data-date="' + dateStr + '"]'
@@ -3887,6 +3937,8 @@ if (resetAckBtn) {
          * Interaction : clic / double-clic ouvre la fiche RPL (comme sur le planning).
          */
         function updateRplSidePanel() {
+    /* RPL DÉSACTIVÉ */ return;
+
             // Panneau latéral remplacements supprimé de l'interface
             const listEl = document.getElementById('rplSidePanelList');
             const countEl = document.getElementById('rplSidePanelCount');
@@ -4704,6 +4756,8 @@ if (resetAckBtn) {
          * Ouvre le détail M / A / N / sur J pour un agent (RE / Admin uniquement).
          */
         function openAgentReplacementDetailModal(agentId, teamId) {
+    /* RPL DÉSACTIVÉ */ return;
+
             if (isReadOnly) {
                 alert('Détail réservé aux RE et Administrateurs.');
                 return;
@@ -4744,11 +4798,15 @@ if (resetAckBtn) {
         }
 
         function closeAgentReplacementDetailModal() {
+    /* RPL DÉSACTIVÉ */ return;
+
             const m = document.getElementById('agentReplacementDetailModal');
             if (m) m.style.display = 'none';
         }
 
         function syncReplacementCountsOnOpen() {
+    /* RPL DÉSACTIVÉ */ return;
+
             // Compteurs planning : recalculés dans renderAll via calculateExtraShiftsCount(currentYear)
             // Fiches RPL ouvertes : rafraîchir listes + stats
             if (activeRplContext) {
@@ -5005,12 +5063,12 @@ if (resetAckBtn) {
         ? getTeamsVisibleForCurrentUser()
         : (teams || []);
 
-    if ((!teamsToShow || teamsToShow.length === 0) && settings && settings.restrictTeamVisibility && isReadOnly) {
+    if ((!teamsToShow || teamsToShow.length === 0) && isReadOnly) {
         const emptyTr = document.createElement('tr');
         const emptyTd = document.createElement('td');
         emptyTd.colSpan = Math.max(2, dates.length + 2);
         emptyTd.style.cssText = 'padding:16px; text-align:center; color:#888; font-style:italic;';
-        emptyTd.textContent = 'Aucune équipe visible. Vérifiez la liaison Agents ↔ e-mail dans les paramètres (Admin), ou désactivez la visibilité par équipe.';
+        emptyTd.textContent = 'Aucune ligne visible. Demandez à un administrateur de lier votre e-mail à votre fiche agent (Paramètres → Agents ↔ e-mail).';
         emptyTr.appendChild(emptyTd);
         tbody.appendChild(emptyTr);
         return;
@@ -5093,36 +5151,29 @@ if (resetAckBtn) {
 
         // Affichage des agents de l'équipe (sauf si équipe repliée)
         team.agents.forEach(agent => {
+            // Agent connecté : uniquement sa propre ligne (pas les collègues)
+            if (typeof canSeeAgentRow === 'function' && !canSeeAgentRow(agent.id)) {
+                return;
+            }
             if (typeof isAgentRowHidden === 'function' && isAgentRowHidden(team.id, agent.id)) {
                 return; // masqué à l'affichage — toujours compté dans calculs/compétences
             }
-            const extraShifts = calculateExtraShiftsCount(agent, team.id, currentYear);
-
             const tr = document.createElement('tr');
             const tdName = document.createElement('td'); 
             tdName.className = 'sticky-col-1'; 
             tdName.style.paddingLeft = '10px'; 
             
-            // Intégration du nom, du badge et du bouton de suppression
+            // Nom de l'agent (+ suppression pour RE/Admin)
             let deleteBtnHtml = !isReadOnly 
                 ? `<button class="btn btn-danger" style="padding:0 4px; font-size:0.65rem; margin-right:4px;" title="Supprimer cet agent" onclick="event.stopPropagation(); deleteAgentFromTeam('${team.id}', '${agent.id}');">🗑️</button>` 
                 : '';
 
-            const canSeeShiftDetail = !isReadOnly; // RE ou Admin
-            const badgeClick = canSeeShiftDetail
-                ? `onclick="event.stopPropagation(); openAgentReplacementDetailModal('${agent.id}', '${team.id}');"`
-                : '';
-            const badgeClass = 'extra-shifts-badge' + (canSeeShiftDetail ? ' clickable' : '');
-            const badgeTitle = canSeeShiftDetail
-                ? `Remplacements (hors roulement M/A/N) — année ${currentYear}. Cliquer pour le détail.`
-                : `Remplacements (hors roulement M/A/N) — année calendaire ${currentYear}`;
             tdName.innerHTML = `
-                <div style="display:flex; align-items:center; justify-content:space-between; width:100%;">
+                <div style="display:flex; align-items:center; width:100%;">
                     <div style="display:flex; align-items:center; overflow:hidden; text-overflow:ellipsis;">
                         ${deleteBtnHtml}
                         <span style="cursor:${isReadOnly ? 'default' : 'pointer'};" onclick="${!isReadOnly ? `openAgentModal('${agent.id}')` : ''}">${agent.name}</span>
                     </div>
-                    <span class="${badgeClass}" title="${badgeTitle}" ${badgeClick}>${extraShifts} q.</span>
                 </div>`;
             
             tr.appendChild(tdName);
@@ -5164,18 +5215,25 @@ if (resetAckBtn) {
                 cellDiv.setAttribute('data-is-team', '0');
 
                 if (hasIndividual) {
-                    cellDiv.style.backgroundColor = taskDef.color;
-                    cellDiv.style.color = taskDef.text;
-                    // Code principal + badge multi-tâches
-                    const codeSpan = document.createElement('span');
-                    codeSpan.textContent = taskCode;
-                    cellDiv.appendChild(codeSpan);
+                    // Plusieurs tâches : afficher J (journée) + nombre de tâches
                     if (multiCount > 1) {
+                        const jDef = TASKS['J'] || { color: '#f1c40f', text: '#000', label: 'Journée' };
+                        cellDiv.style.backgroundColor = jDef.color;
+                        cellDiv.style.color = jDef.text;
+                        const codeSpan = document.createElement('span');
+                        codeSpan.textContent = 'J';
+                        cellDiv.appendChild(codeSpan);
                         const badge = document.createElement('span');
                         badge.className = 'multi-task-badge';
-                        badge.textContent = '+' + (multiCount - 1);
+                        badge.textContent = String(multiCount);
                         badge.title = multiCount + ' tâches sur cette case';
                         cellDiv.appendChild(badge);
+                    } else {
+                        cellDiv.style.backgroundColor = taskDef.color;
+                        cellDiv.style.color = taskDef.text;
+                        const codeSpan = document.createElement('span');
+                        codeSpan.textContent = taskCode;
+                        cellDiv.appendChild(codeSpan);
                     }
                 } else {
                     // Roulement hérité : cellule vide (repos/quarts calculés via l'équipe)
@@ -5286,12 +5344,12 @@ function bindCellEvents(cellDiv, isTeam, targetId, targetName, dateStr, currentT
         touchPreventClick = false;
         
         // Déclenche le chrono de 2 secondes si la tâche est configurée comme remplacement
-        if (isRplTask) {
+        // Maintien long RPL désactivé
+        if (false && isRplTask) {
             touchTimer = setTimeout(() => {
-                touchPreventClick = true; 
+                touchPreventClick = true;
                 if (navigator.vibrate) navigator.vibrate(50);
-                openReplacementModal(isTeam, targetId, targetName, dateStr);
-            }, 2000); // 2000 ms = 2 secondes
+            }, 2000);
         }
     };
 
@@ -5356,10 +5414,8 @@ function bindCellEvents(cellDiv, isTeam, targetId, targetName, dateStr, currentT
         if (clickTimer) {
             clearTimeout(clickTimer);
             clickTimer = null;
-            // DOUBLE CLIC : ouvrir la fiche si tâche configurée comme remplacement
-            if (isRplTask) {
-                openReplacementModal(isTeam, targetId, targetName, dateStr);
-            } else if (!isTeam && typeof openCellTasksDetailModal === 'function') {
+            // DOUBLE CLIC : détail multi-tâches (agent) ou modal tâche
+            if (!isTeam && typeof openCellTasksDetailModal === 'function') {
                 openCellTasksDetailModal(targetId, targetName, dateStr);
             } else if (typeof canModifyPlanning === 'function' ? canModifyPlanning() : !isReadOnly) {
                 openTaskModal(isTeam, targetId, targetName, dateStr, currentTaskCode, currentDesc);
@@ -5406,9 +5462,7 @@ function handleTaskCellClick(event, isTeam, targetId, targetName, dateStr, curre
         clearTimeout(clickTimer);
         clickTimer = null;
         // DOUBLE CLIC :
-        if (currentTaskCode === 'RPL') {
-            openReplacementModal(isTeam, targetId, targetName, dateStr);
-        } else if (!isReadOnly) {
+        if (!isReadOnly) {
             openTaskModal(isTeam, targetId, targetName, dateStr, currentTaskCode, currentDesc);
         }
     } else {
@@ -5427,6 +5481,8 @@ function handleTaskCellClick(event, isTeam, targetId, targetName, dateStr, curre
  * Priorité : roulement d'équipe du jour (M/A/N/J).
  */
 function getShiftToFillForRpl(isTeam, targetId, dateStr) {
+    /* RPL DÉSACTIVÉ */ return '';
+
     let teamId = null;
 
     if (isTeam) {
@@ -5468,6 +5524,8 @@ function getTeamShortLabel(team) {
  * Format : "Quart à combler : M (Matin) | Équipes dispo : EQ2, EQ4"
  */
 function buildRplAvailabilityComment(isTeam, targetId, dateStr) {
+    /* RPL DÉSACTIVÉ */ return '';
+
     const shiftToFill = getShiftToFillForRpl(isTeam, targetId, dateStr);
     const shiftLabel = (shiftToFill && TASKS[shiftToFill])
         ? (shiftToFill + ' (' + TASKS[shiftToFill].label + ')')
@@ -5522,6 +5580,8 @@ function buildRplAvailabilityComment(isTeam, targetId, dateStr) {
  * @returns {string}
  */
 function mergeRplAutoAndUserComment(autoComment, userOrCombinedComment) {
+    /* RPL DÉSACTIVÉ */ return '';
+
     const auto = String(autoComment || '').replace(/\s+$/, '');
     const user = String(userOrCombinedComment || '').replace(/^\s+|\s+$/g, '');
     if (!user) return auto;
@@ -5537,6 +5597,8 @@ function mergeRplAutoAndUserComment(autoComment, userOrCombinedComment) {
  * (mêmes règles que la liste des volontaires filtrée).
  */
 function getEligibleAgentsForRpl(isTeam, targetId, dateStr, recommendedSkillsOverride) {
+    /* RPL DÉSACTIVÉ */ return [];
+
     const shiftToFill = (typeof getShiftToFillForRpl === 'function')
         ? getShiftToFillForRpl(isTeam, targetId, dateStr)
         : null;
@@ -5603,6 +5665,8 @@ function getEligibleAgentsForRpl(isTeam, targetId, dateStr, recommendedSkillsOve
  * @returns {boolean}
  */
 function isRplReadyToProcess(isTeam, targetId, dateStr) {
+    /* RPL DÉSACTIVÉ */ return false;
+
     const sheetKey = targetId + '_' + dateStr;
     if (!replacementSheets || !replacementSheets[sheetKey]) return false;
     const sheet = ensureReplacementSheet(sheetKey);
@@ -5640,6 +5704,8 @@ function isRplReadyToProcess(isTeam, targetId, dateStr) {
  * @returns {'all_seen'|'deadline'|'both'|''}
  */
 function getRplReadyToProcessReason(isTeam, targetId, dateStr) {
+    /* RPL DÉSACTIVÉ */ return '';
+
     const sheetKey = targetId + '_' + dateStr;
     if (!replacementSheets || !replacementSheets[sheetKey]) return '';
     const sheet = ensureReplacementSheet(sheetKey);
@@ -5799,6 +5865,8 @@ function getAgentInfoOnDate(agentId, dateStr) {
  * @returns {{ warnings: string[], isOnJ: boolean, hasRisk: boolean }}
  */
 function getVolunteerRestWarnings(agentId, dateStr, targetShiftCode) {
+    /* RPL DÉSACTIVÉ */ return { ok: true, warnings: [] };
+
     const result = { warnings: [], isOnJ: false, hasRisk: false };
     if (!agentId || !dateStr || !targetShiftCode || !TASKS[targetShiftCode]) return result;
 
@@ -5990,6 +6058,8 @@ function agentHasAllRecommendedSkills(agent, recommendedSkillIds) {
 }
 
 function canAgentTakeReplacement(agentId, dateStr, targetShiftCode) {
+    /* RPL DÉSACTIVÉ */ return false;
+
     if (!targetShiftCode || !TASKS[targetShiftCode]) return false;
 
     const info = getAgentInfoOnDate(agentId, dateStr);
@@ -6134,6 +6204,8 @@ function canAgentTakeReplacement(agentId, dateStr, targetShiftCode) {
 
 /** Remplit la liste déroulante des volontaires */
 function populateRplAgentSelect(showAll) {
+    /* RPL DÉSACTIVÉ */ return;
+
     const select = document.getElementById('rplAgentSelect');
     if (!select) return;
 
@@ -6230,6 +6302,8 @@ function populateRplAgentSelect(showAll) {
 
 /** Bascule entre liste filtrée et liste complète */
 function toggleRplShowAllAgents() {
+    /* RPL DÉSACTIVÉ */ return;
+
     rplShowAllAgents = !rplShowAllAgents;
 
     const btn = document.getElementById('rplShowAllBtn');
@@ -6262,6 +6336,8 @@ function toggleRplShowAllAgents() {
         // mémorise le contexte (équipe/agent, date) ; initialise les données de remplacement ; charge la liste des agents disponibles ; prépare l'interface ; affiche la fenêtre modale.
         
 function openReplacementModal(isTeam, targetId, targetName, dateStr) {
+    /* RPL DÉSACTIVÉ */ return;
+
     // 1. Déterminer le quart d'absence = roulement de l'équipe ce jour-là
     let shiftToFill = null;
     let teamIdForShift = isTeam ? targetId : null;
@@ -6387,6 +6463,8 @@ function openReplacementModal(isTeam, targetId, targetName, dateStr) {
         // sert à afficher les statistiques de remplacement d'un agent sélectionné dans la fiche RPL.
         // Son objectif est d'aider la personne qui gère le remplacement à voir rapidement combien de quarts supplémentaires cet agent a déjà effectués durant l'année, afin d'équilibrer la charge entre les agents.
 function updateRplAgentStats() {
+    /* RPL DÉSACTIVÉ */ return;
+
     const agentId = document.getElementById('rplAgentSelect').value;
     const statsEl = document.getElementById('rplAgentStats');
     if (!statsEl) return;
@@ -6440,6 +6518,8 @@ function updateRplAgentStats() {
         // sert à ajouter un agent à la liste des volontaires d'une fiche de remplacement (RPL).
         // En pratique, lorsqu'un gestionnaire sélectionne un agent dans la liste déroulante de la fenêtre RPL et clique sur "Ajouter", cette fonction enregistre cet agent comme volontaire.
 function addVolunteerToSheet() {
+    /* RPL DÉSACTIVÉ */ return;
+
     if (!activeRplContext) return;
 
     const select = document.getElementById('rplAgentSelect');
@@ -6518,6 +6598,8 @@ function addVolunteerToSheet() {
 
 /** Retire un volontaire de la fiche RPL */
 function removeVolunteerFromSheet(agentId) {
+    /* RPL DÉSACTIVÉ */ return;
+
     if (!activeRplContext || !agentId) return;
 
     const sheetKey = activeRplContext.targetId + '_' + activeRplContext.dateStr;
@@ -6554,6 +6636,8 @@ function removeVolunteerFromSheet(agentId) {
 
         // sert à afficher dans la fenêtre RPL la liste des agents volontaires pour un remplacement, ainsi que leur nombre de remplacements déjà effectués et leur statut de sélection.
 function renderVolunteersList() {
+    /* RPL DÉSACTIVÉ */ return;
+
     if (!activeRplContext) return;
 
     if (typeof refreshOpenSheetVolunteerRestBlocks === 'function') {
@@ -6984,6 +7068,8 @@ function refreshOpenSheetVolunteerRestBlocks() {
          * Réservé aux RE / Admin.
          */
 function validateReplacementSheet() {
+    /* RPL DÉSACTIVÉ */ return;
+
     if (isReadOnly || !activeRplContext) return;
 
     const comment = document.getElementById('rplComment').value.trim();
@@ -7184,6 +7270,8 @@ function validateReplacementSheet() {
  * Utilise les e-mails du tableau de paramétrage agentEmailLinks.
  */
 function proposeNotifyReplacementByEmail(ctx) {
+    /* RPL DÉSACTIVÉ */ return;
+
     if (!ctx || !ctx.selectedIds || ctx.selectedIds.length === 0) return;
 
     const emails = [];
@@ -7253,6 +7341,8 @@ function openOutlookWebCompose(toEmails, subject, body) {
  * Collecte toutes les fiches RPL actives (équipe + agents).
  */
 function collectAllRplItems() {
+    /* RPL DÉSACTIVÉ */ return [];
+
     const items = [];
     Object.keys(teamSchedules || {}).forEach(function(teamId) {
         const schedule = teamSchedules[teamId] || {};
@@ -7300,6 +7390,8 @@ function collectAllRplItems() {
 
 /** Libellé du quart à combler pour une fiche RPL */
 function getRplShiftLabel(isTeam, targetId, dateStr) {
+    /* RPL DÉSACTIVÉ */ return '';
+
     const shift = (typeof getShiftToFillForRpl === 'function')
         ? getShiftToFillForRpl(isTeam, targetId, dateStr)
         : null;
@@ -7311,6 +7403,8 @@ function getRplShiftLabel(isTeam, targetId, dateStr) {
 
 /** Équipes disponibles pour un remplacement (libellés courts) */
 function getAvailableTeamsLabelsForRpl(isTeam, targetId, dateStr) {
+    /* RPL DÉSACTIVÉ */ return '';
+
     const shiftToFill = (typeof getShiftToFillForRpl === 'function')
         ? getShiftToFillForRpl(isTeam, targetId, dateStr)
         : null;
@@ -7352,6 +7446,8 @@ function getAvailableTeamsLabelsForRpl(isTeam, targetId, dateStr) {
  * décochée seule : seulement en cochant « se proposer ».
  */
 function onVolunteerChoiceChange(rowId, which) {
+    /* RPL DÉSACTIVÉ */ return;
+
     const yes = document.getElementById('vol_yes_' + rowId);
     const no = document.getElementById('vol_no_' + rowId);
     if (!yes || !no) return;
@@ -7400,6 +7496,8 @@ function onVolunteerChoiceChange(rowId, which) {
  * @returns {{ unseen: number, totalEligible: number }}
  */
 function countMyUnseenEligibleRplSheets() {
+    /* RPL DÉSACTIVÉ */ return;
+
     const result = { unseen: 0, totalEligible: 0 };
     if (!currentUser || !currentUser.email) return result;
     const myIds = (typeof getMyAgentIds === 'function') ? getMyAgentIds() : [];
@@ -7478,6 +7576,8 @@ function countMyUnseenEligibleRplSheets() {
  * Affiche le nombre de fiches non vues sur le bouton.
  */
 function updateVolunteerButtonState() {
+    /* RPL DÉSACTIVÉ */ return;
+
     const btn = document.getElementById('volunteerOpenBtn');
     if (!btn) return;
 
@@ -8650,6 +8750,8 @@ function purgeAbsenceRequestArchives() {
  * Cumul permanent (pas de reset annuel).
  */
 function recordVolunteerStatsOnSheetClose(isTeam, targetId, dateStr, volunteersList) {
+    /* RPL DÉSACTIVÉ */ return;
+
     if (!replacementVolunteerStats || typeof replacementVolunteerStats !== 'object') {
         replacementVolunteerStats = {};
     }
@@ -8751,6 +8853,8 @@ function getAgentVolunteerProbability(agentId) {
 }
 
 function openVolunteerStatsModal() {
+    /* RPL DÉSACTIVÉ */ return;
+
     const tbody = document.getElementById('volunteerStatsTableBody');
     if (!tbody) return;
     tbody.innerHTML = '';
@@ -8808,6 +8912,8 @@ function openVolunteerStatsModal() {
 }
 
 function closeVolunteerStatsModal() {
+    /* RPL DÉSACTIVÉ */ return;
+
     const m = document.getElementById('volunteerStatsModal');
     if (m) m.style.display = 'none';
 }
@@ -8816,6 +8922,8 @@ function closeVolunteerStatsModal() {
  * Admin : remet à zéro tous les compteurs de disponibilité RPL.
  */
 function resetVolunteerStats() {
+    /* RPL DÉSACTIVÉ */ return;
+
     if (!isAdmin) {
         alert('Action réservée aux Administrateurs.');
         return;
@@ -8833,6 +8941,8 @@ function resetVolunteerStats() {
 }
 
 function openVolunteerModal() {
+    /* RPL DÉSACTIVÉ */ return;
+
     // Fonctionnalité « Se porter volontaire » retirée de l'interface
     if (!document.getElementById('volunteerOpenBtn')) {
         return;
@@ -9084,6 +9194,8 @@ function openVolunteerModal() {
          * Ferme la modale « Se porter volontaire » sans enregistrer les choix non validés.
          */
 function closeVolunteerModal() {
+    /* RPL DÉSACTIVÉ */ return;
+
     const modal = document.getElementById('volunteerModal');
     if (modal) modal.style.display = 'none';
 }
@@ -9096,6 +9208,8 @@ function closeVolunteerModal() {
  * - Aucun choix et n'était pas volontaire → aucune modification
  */
 function confirmVolunteerChoices() {
+    /* RPL DÉSACTIVÉ */ return;
+
     const listEl = document.getElementById('volunteerModalList');
     if (!listEl) return;
 
@@ -9210,6 +9324,8 @@ function confirmVolunteerChoices() {
 
         // sert simplement à fermer la fenêtre de gestion des remplacements (RPL) et à nettoyer le contexte actif.
 function closeReplacementModal() {
+    /* RPL DÉSACTIVÉ */ return;
+
     document.getElementById('replacementModal').style.display = 'none';
     activeRplContext = null;
 }
@@ -9261,6 +9377,8 @@ function closeArchiveRemplacementModal() {
  * Accessible uniquement aux RE.
  */
 function exportRplArchivesToExcel() {
+    /* RPL DÉSACTIVÉ */ return;
+
     if (isReadOnly) {
         alert("Accès réservé aux Responsables d'Équipe.");
         return;
@@ -9319,6 +9437,8 @@ function exportRplArchivesToExcel() {
  * Accessible uniquement aux RE. Demande confirmation.
  */
 function purgeReplacementArchives() {
+    /* RPL DÉSACTIVÉ */ return;
+
     if (isReadOnly) {
         alert("Accès réservé aux Responsables d'Équipe.");
         return;
@@ -9342,17 +9462,19 @@ function purgeReplacementArchives() {
 
         // sert à ouvrir la fenêtre de modification d'une tâche du planning (équipe ou agent), en préchargeant les informations existantes et en affichant toutes les tâches disponibles.
         // C'est la fonction centrale d'édition des affectations.
-        let activeTaskPickerTab = 'remplacement'; // onglet 2 par défaut
+        let activeTaskPickerTab = 'presences'; // onglet Présences par défaut
 
         /** Catégorie d'une tâche pour les onglets du modal (paramétrable via settings.taskTabMap) */
         function getTaskPickerCategory(code) {
             if (settings && settings.taskTabMap && settings.taskTabMap[code]) {
                 const m = settings.taskTabMap[code];
-                if (m === 'presences' || m === 'remplacement' || m === 'absences') return m;
+                // Onglet Remplacement supprimé → regroupé sous Présences
+                if (m === 'remplacement') return 'presences';
+                if (m === 'presences' || m === 'absences') return m;
             }
             const t = TASKS[code];
             if (!t) return 'presences';
-            if (t.isReplacement) return 'remplacement';
+            if (t.isReplacement) return 'presences';
             if (t.isRest) return 'absences';
             const c = String(code).toUpperCase();
             if (['CA', 'F', 'RC', 'HP', 'OFF', 'MAL', 'AT', 'CSS', 'C'].indexOf(c) !== -1) return 'absences';
@@ -9369,7 +9491,7 @@ function purgeReplacementArchives() {
          * @param {'presences'|'remplacement'|'absences'} tab
          */
         function switchTaskModalTab(tabId, skipRenderOnly) {
-            activeTaskPickerTab = tabId || 'remplacement';
+            activeTaskPickerTab = tabId || 'presences';
             document.querySelectorAll('.task-modal-tab-btn').forEach(function(btn) {
                 const on = btn.getAttribute('data-task-tab') === activeTaskPickerTab;
                 btn.classList.toggle('active', on);
@@ -9596,6 +9718,18 @@ function purgeReplacementArchives() {
             renderCellTasksDetailList();
             const modal = document.getElementById('cellTasksDetailModal');
             if (modal) modal.style.display = 'flex';
+            // Alerte si ce n'est pas aujourd'hui
+            try {
+                const todayStr = (typeof formatDate === 'function') ? formatDate(new Date()) : '';
+                if (dateStr && todayStr && dateStr !== todayStr) {
+                    const disp = (typeof formatDateStrDisplay === 'function')
+                        ? formatDateStrDisplay(dateStr)
+                        : dateStr;
+                    setTimeout(function() {
+                        alert('Attention : vous n\'êtes pas sur la programmation d\'aujourd\'hui.\n\nDate consultée : ' + disp);
+                    }, 50);
+                }
+            } catch (e) {}
         }
 
         function closeCellTasksDetailModal() {
@@ -9611,8 +9745,45 @@ function purgeReplacementArchives() {
             const addBtn = document.getElementById('cellTasksDetailAddBtn');
             if (!listEl || !ctx) return;
 
-            const canEdit = (typeof canModifyPlanning === 'function') ? canModifyPlanning() : !isReadOnly;
+            const canEdit = (typeof canEditAgentDayTasks === 'function')
+                ? canEditAgentDayTasks()
+                : ((typeof canModifyPlanning === 'function') ? canModifyPlanning() : !isReadOnly);
             if (addBtn) addBtn.style.display = canEdit ? 'inline-block' : 'none';
+
+            // Bandeau jour : vert si aujourd'hui, orange sinon
+            const modal = document.getElementById('cellTasksDetailModal');
+            const headerEl = modal ? modal.querySelector('.modal-content > div:first-child') : null;
+            let banner = document.getElementById('cellTasksDetailDayBanner');
+            if (!banner && modal) {
+                const content = modal.querySelector('.modal-content');
+                if (content) {
+                    banner = document.createElement('div');
+                    banner.id = 'cellTasksDetailDayBanner';
+                    // Insérer juste après l'en-tête
+                    if (headerEl && headerEl.nextSibling) {
+                        content.insertBefore(banner, headerEl.nextSibling);
+                    } else if (content.firstChild) {
+                        content.insertBefore(banner, content.firstChild.nextSibling);
+                    } else {
+                        content.appendChild(banner);
+                    }
+                }
+            }
+            const todayStr = (typeof formatDate === 'function') ? formatDate(new Date()) : '';
+            const isToday = !!(ctx.dateStr && todayStr && ctx.dateStr === todayStr);
+            if (headerEl) {
+                headerEl.classList.remove('ctd-header-today', 'ctd-header-not-today');
+                headerEl.classList.add(isToday ? 'ctd-header-today' : 'ctd-header-not-today');
+            }
+            if (banner) {
+                if (isToday) {
+                    banner.className = 'ctd-banner-today';
+                    banner.textContent = '✓ Activités du jour — programmation d\'aujourd\'hui';
+                } else {
+                    banner.className = 'ctd-banner-not-today';
+                    banner.textContent = '⚠ Attention — ce n\'est pas la programmation d\'aujourd\'hui';
+                }
+            }
 
             let teamId = null;
             let teamName = '';
@@ -9677,11 +9848,6 @@ function purgeReplacementArchives() {
                     html += '<div class="ctd-desc" style="color:#aaa;font-style:italic;">Aucun détail RDV / intervention</div>';
                 }
                 html += '<div class="ctd-actions">';
-                if (tDef.isReplacement) {
-                    html += '<button type="button" class="btn btn-secondary" style="font-size:0.78rem;padding:4px 8px;" '
-                        + 'onclick="openReplacementModal(false, \'' + String(ctx.agentId).replace(/'/g, "\\'") + '\', \''
-                        + String(ctx.agentName).replace(/'/g, "\\'") + '\', \'' + ctx.dateStr + '\')">📋 Fiche RPL</button>';
-                }
                 if (canEdit) {
                     html += '<button type="button" class="btn" style="font-size:0.78rem;padding:4px 8px;background:#2980b9;" '
                         + 'onclick="editAgentDayTaskFromDetail(' + idx + ')">✏️ Modifier</button>';
@@ -9690,6 +9856,20 @@ function purgeReplacementArchives() {
                 }
                 html += '</div>';
                 item.innerHTML = html;
+                // Clic sur la carte entière (Admin/RE) → modifier cette tâche
+                if (canEdit) {
+                    item.style.cursor = 'pointer';
+                    item.title = 'Cliquer pour modifier cette tâche';
+                    (function(taskIndex) {
+                        item.addEventListener('click', function(ev) {
+                            // Ne pas double-déclencher si clic sur un bouton d'action
+                            if (ev.target && (ev.target.tagName === 'BUTTON' || (ev.target.closest && ev.target.closest('button')))) {
+                                return;
+                            }
+                            editAgentDayTaskFromDetail(taskIndex);
+                        });
+                    })(idx);
+                }
                 listEl.appendChild(item);
             });
         }
@@ -9697,16 +9877,22 @@ function purgeReplacementArchives() {
         function openAddTaskFromCellDetail() {
             const ctx = cellTasksDetailContext;
             if (!ctx) return;
-            if (typeof canModifyPlanning === 'function' ? !canModifyPlanning() : isReadOnly) {
-                alert('Édition du planning verrouillée (bouton ✋) ou lecture seule.\nDéverrouillez l\'édition pour ajouter des tâches.');
+            const canEdit = (typeof canEditAgentDayTasks === 'function')
+                ? canEditAgentDayTasks()
+                : (typeof canModifyPlanning === 'function' ? canModifyPlanning() : !isReadOnly);
+            if (!canEdit) {
+                alert('Lecture seule : vous ne pouvez pas ajouter de tâche.');
                 return;
             }
             // Toujours en mode ajout (plusieurs tâches le même jour)
             taskModalMultiMode = 'append';
             const list = getAgentDayTaskList(ctx.agentId, ctx.dateStr);
             const primary = list.length ? list[0].code : 'R';
+            // Commentaires toujours réinitialisés pour une nouvelle saisie
             openTaskModal(false, ctx.agentId, ctx.agentName, ctx.dateStr, primary, '');
-            // Indiquer clairement le mode ajout
+            if (typeof clearStructuredTaskCommentInModal === 'function') {
+                clearStructuredTaskCommentInModal();
+            }
             try {
                 const h2 = document.querySelector('#taskModal h2');
                 if (h2) {
@@ -9720,8 +9906,11 @@ function purgeReplacementArchives() {
         function editAgentDayTaskFromDetail(index) {
             const ctx = cellTasksDetailContext;
             if (!ctx) return;
-            if (typeof canModifyPlanning === 'function' ? !canModifyPlanning() : isReadOnly) {
-                alert('Édition du planning verrouillée ou lecture seule.');
+            const canEdit = (typeof canEditAgentDayTasks === 'function')
+                ? canEditAgentDayTasks()
+                : (typeof canModifyPlanning === 'function' ? canModifyPlanning() : !isReadOnly);
+            if (!canEdit) {
+                alert('Lecture seule : modification non autorisée.');
                 return;
             }
             const list = getAgentDayTaskList(ctx.agentId, ctx.dateStr);
@@ -9729,12 +9918,19 @@ function purgeReplacementArchives() {
             taskModalMultiMode = { editIndex: index };
             // Passer l'entrée complète (champs structurés) pour préremplir le formulaire
             openTaskModal(false, ctx.agentId, ctx.agentName, ctx.dateStr, list[index].code, list[index]);
+            try {
+                const h2 = document.querySelector('#taskModal h2');
+                if (h2) h2.textContent = 'Modifier la tâche';
+            } catch (e) {}
         }
 
         function removeAgentDayTaskFromDetail(index) {
             const ctx = cellTasksDetailContext;
             if (!ctx) return;
-            if (typeof canModifyPlanning === 'function' ? !canModifyPlanning() : isReadOnly) return;
+            const canEdit = (typeof canEditAgentDayTasks === 'function')
+                ? canEditAgentDayTasks()
+                : (typeof canModifyPlanning === 'function' ? canModifyPlanning() : !isReadOnly);
+            if (!canEdit) return;
             const list = getAgentDayTaskList(ctx.agentId, ctx.dateStr);
             if (index < 0 || index >= list.length) return;
             const code = list[index].code;
@@ -9796,18 +9992,22 @@ function purgeReplacementArchives() {
             document.getElementById('taskModalTargetInfo').innerHTML =
                 (isTeam ? 'Équipe' : 'Agent') + ' : <strong>' + (targetName || targetId) + '</strong> | Date : <strong>' + dateLabel + '</strong>';
             if (typeof fillStructuredTaskCommentInModal === 'function') {
-                fillStructuredTaskCommentInModal(currentDesc || '');
+                // currentDesc vide ou absent → champs réinitialisés pour nouvelle saisie
+                if (!currentDesc || currentDesc === '') {
+                    fillStructuredTaskCommentInModal({});
+                } else {
+                    fillStructuredTaskCommentInModal(currentDesc);
+                }
             } else {
                 const descEl = document.getElementById('taskModalDescription');
                 if (descEl) descEl.value = currentDesc || '';
             }
 
-            // Onglets Présences / Remplacement / Absences
+            // Onglets Présences / Absences (Remplacement retiré)
             if (typeof switchTaskModalTab === 'function') {
-                // Par défaut onglet Remplacement (2) ; l'utilisateur peut changer
-                switchTaskModalTab('remplacement');
+                switchTaskModalTab('presences');
             } else {
-                renderTaskPickerGrid('remplacement');
+                renderTaskPickerGrid('presences');
             }
 
             document.getElementById('taskModal').style.display = 'flex';
@@ -9959,6 +10159,8 @@ function purgeReplacementArchives() {
          * dans la modale de deadline RPL (uniquement les compétences « trackables »).
          */
         function populateRplRecommendedSkillsCheckboxes() {
+    /* RPL DÉSACTIVÉ */ return;
+
             const box = document.getElementById('rplRecommendedSkillsBox');
             const container = document.getElementById('rplRecommendedSkillsCheckboxes');
             if (!box || !container) return;
@@ -10195,9 +10397,17 @@ function purgeReplacementArchives() {
         }
 
         function confirmTaskSelection() {
-            if ((typeof canModifyPlanning === 'function' ? !canModifyPlanning() : isReadOnly) || !activeTaskCellSelection) return;
-
+            if (!activeTaskCellSelection) return;
             const { isTeam, targetId, dateStr } = activeTaskCellSelection;
+            // Agent : Admin/RE peuvent valider même sans « main » ; équipe : Admin + main
+            if (isTeam) {
+                if (typeof canModifyPlanning === 'function' ? !canModifyPlanning() : isReadOnly) return;
+            } else {
+                const canAgent = (typeof canEditAgentDayTasks === 'function')
+                    ? canEditAgentDayTasks()
+                    : (typeof canModifyPlanning === 'function' ? canModifyPlanning() : !isReadOnly);
+                if (!canAgent) return;
+            }
             // Sécurité : le roulement d'équipe ne peut être validé que par un Admin
             if (isTeam && !isAdmin) {
                 alert(
@@ -10229,9 +10439,9 @@ function purgeReplacementArchives() {
             // Stocker le structuré pour append/update
             activeTaskCellSelection._structuredComment = structuredComment;
 
-            // Tâche de remplacement
+            // Flux fiches de remplacement désactivé — les tâches s'enregistrent comme les autres
             const selectedDef = TASKS[selectedTaskCodeInModal];
-            if (selectedDef && selectedDef.isReplacement) {
+            if (false && selectedDef && selectedDef.isReplacement) {
                 const sortedDates = dateStrs.slice().sort();
                 const isMulti = sortedDates.length > 1;
                 // Commentaire manuel utilisateur (répété sur tous les jours) vs auto par jour
@@ -10342,6 +10552,8 @@ function purgeReplacementArchives() {
          * Annule la saisie de deadline RPL et ferme la modale associée.
          */
         function cancelRplDeadlineModal() {
+    /* RPL DÉSACTIVÉ */ return;
+
             const pending = pendingRplTaskAssignment;
             document.getElementById('rplDeadlineModal').style.display = 'none';
             const fromAbsence = pending && pending.fromAbsenceRequestId;
@@ -10414,6 +10626,9 @@ function purgeReplacementArchives() {
          * Toute nouvelle tâche RPxx ajoutée dans Paramètres est reconnue sans modifier le HTML.
          */
         function isRplLikeCode(code) {
+            // FLUX RPL DÉSACTIVÉ
+            return false;
+
             if (!code && code !== 0) return false;
             const c = String(code).trim().toUpperCase();
             if (c.length >= 3 && c.indexOf('RP') === 0) return true;
@@ -10512,6 +10727,8 @@ function purgeReplacementArchives() {
          * puis applique l'affectation de tâche (individuelle ou d'équipe avec récurrence).
          */
         function confirmRplDeadlineAndSave() {
+    /* RPL DÉSACTIVÉ */ return;
+
             if (!pendingRplTaskAssignment) return;
             // Validation d'une demande d'absence : RE/Admin suffit (pas besoin main déverrouillée)
             const fromAbsence = !!pendingRplTaskAssignment.fromAbsenceRequestId;
@@ -10692,8 +10909,16 @@ function purgeReplacementArchives() {
         }
 
 function clearTaskAndDesc() {
-            if ((typeof canModifyPlanning === 'function' ? !canModifyPlanning() : isReadOnly) || !activeTaskCellSelection) return;
+            if (!activeTaskCellSelection) return;
             const { isTeam, targetId, dateStr } = activeTaskCellSelection;
+            if (isTeam) {
+                if (typeof canModifyPlanning === 'function' ? !canModifyPlanning() : isReadOnly) return;
+            } else {
+                const canAgent = (typeof canEditAgentDayTasks === 'function')
+                    ? canEditAgentDayTasks()
+                    : (typeof canModifyPlanning === 'function' ? canModifyPlanning() : !isReadOnly);
+                if (!canAgent) return;
+            }
             const dateStrs = (activeTaskCellSelection.dateStrs && activeTaskCellSelection.dateStrs.length)
                 ? activeTaskCellSelection.dateStrs
                 : [dateStr];
