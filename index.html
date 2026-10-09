@@ -938,15 +938,75 @@
         .ctd-end-photo-wrap {
             margin-top: 8px;
         }
-        .ctd-end-photo-wrap img {
-            max-width: 100%;
-            max-height: 220px;
+        .ctd-end-photo-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+        .ctd-end-photo-grid .ctd-photo-item {
+            position: relative;
+            width: 96px;
+            height: 96px;
+        }
+        .ctd-end-photo-grid .ctd-photo-item img {
+            width: 96px;
+            height: 96px;
+            object-fit: cover;
             border-radius: 8px;
             border: 1px solid #c8e6c9;
-            display: block;
-            object-fit: contain;
             background: #fff;
             cursor: pointer;
+            display: block;
+        }
+        .ctd-end-photo-grid .ctd-photo-item .ctd-photo-rm {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            background: rgba(192,57,43,0.9);
+            color: #fff;
+            border: none;
+            border-radius: 50%;
+            width: 22px;
+            height: 22px;
+            font-size: 0.7rem;
+            cursor: pointer;
+            line-height: 1;
+            padding: 0;
+            z-index: 2;
+        }
+        .ctd-end-photo-grid .ctd-photo-item {
+            width: 140px;
+            height: auto;
+            min-height: 96px;
+        }
+        .ctd-end-photo-grid .ctd-photo-item img {
+            width: 140px;
+            height: 96px;
+        }
+        .ctd-end-photo-grid .ctd-photo-item .ctd-photo-caption {
+            width: 100%;
+            margin-top: 4px;
+            font-size: 0.72rem;
+            padding: 4px 6px;
+            border: 1px solid #bdc3c7;
+            border-radius: 4px;
+            box-sizing: border-box;
+            resize: vertical;
+            min-height: 36px;
+            font-family: inherit;
+        }
+        .ctd-end-photo-grid .ctd-photo-item .ctd-photo-caption-ro {
+            margin-top: 4px;
+            font-size: 0.72rem;
+            color: #444;
+            background: #fff;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            padding: 4px 6px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            min-height: 20px;
         }
         .ctd-end-photo-actions {
             margin-top: 6px;
@@ -958,6 +1018,22 @@
         .ctd-end-photo-actions input[type="file"] {
             font-size: 0.75rem;
             max-width: 100%;
+        }
+        .cell-task-detail-item.ctd-completed {
+            background: #fdebd0 !important;
+            border-left-color: #e67e22 !important;
+            border-color: #f5b041;
+        }
+        .ctd-completed-badge {
+            display: inline-block;
+            background: #e67e22;
+            color: #fff;
+            font-size: 0.72rem;
+            font-weight: 800;
+            padding: 2px 8px;
+            border-radius: 10px;
+            margin-left: 8px;
+            vertical-align: middle;
         }
         .task-cell:hover {
             transform: scale(1.03);
@@ -4575,6 +4651,32 @@ if (resetAckBtn) {
             return 'R';
         }
 
+
+        /** Normalise une photo : string legacy → { src, comment } */
+        function normalizeEndPhotoEntry(p) {
+            if (!p) return null;
+            if (typeof p === 'string') {
+                if (p.indexOf('data:image') !== 0) return null;
+                return { src: p, comment: '' };
+            }
+            if (typeof p === 'object') {
+                const src = String(p.src || p.dataUrl || p.endPhoto || '');
+                if (src.indexOf('data:image') !== 0) return null;
+                return { src: src, comment: String(p.comment || p.caption || '').trim() };
+            }
+            return null;
+        }
+
+        function normalizeEndPhotosList(arr) {
+            const out = [];
+            if (!Array.isArray(arr)) return out;
+            arr.forEach(function(p) {
+                const n = normalizeEndPhotoEntry(p);
+                if (n) out.push(n);
+            });
+            return out;
+        }
+
         function getAgentDayTaskListKey(agentId, dateStr) {
             return String(agentId) + '_' + String(dateStr);
         }
@@ -4590,8 +4692,17 @@ if (resetAckBtn) {
             if (agentTaskLists && Array.isArray(agentTaskLists[key]) && agentTaskLists[key].length) {
                 return agentTaskLists[key].map(function(e) {
                     if (!e) return null;
-                    if (typeof e === 'string') return { code: e, description: '', rdvTime: '', rdvAddress: '', rdvPhone: '', rdvIntervention: '', endComment: '', endPhoto: '' };
+                    if (typeof e === 'string') {
+                        return { code: e, description: '', rdvTime: '', rdvAddress: '', rdvPhone: '', rdvIntervention: '', endComment: '', endPhotos: [], completed: false };
+                    }
                     const parsed = parseStructuredTaskComment(e);
+                    let photos = [];
+                    if (Array.isArray(e.endPhotos)) {
+                        photos = normalizeEndPhotosList(e.endPhotos);
+                    }
+                    if (e.endPhoto && String(e.endPhoto).indexOf('data:image') === 0) {
+                        photos.push({ src: String(e.endPhoto), comment: '' });
+                    }
                     return {
                         code: String(e.code || e.taskCode || 'R'),
                         description: String(e.description != null ? e.description : (e.desc || formatStructuredTaskComment(parsed) || '')),
@@ -4600,7 +4711,8 @@ if (resetAckBtn) {
                         rdvPhone: String(e.rdvPhone != null ? e.rdvPhone : parsed.rdvPhone || ''),
                         rdvIntervention: String(e.rdvIntervention != null ? e.rdvIntervention : parsed.rdvIntervention || ''),
                         endComment: String(e.endComment != null ? e.endComment : (e.finIntervention || e.endOfIntervention || '')),
-                        endPhoto: String(e.endPhoto || '')
+                        endPhotos: photos,
+                        completed: !!e.completed
                     };
                 }).filter(function(e) { return e && e.code; });
             }
@@ -4650,7 +4762,15 @@ if (resetAckBtn) {
                     rdvPhone: structured.rdvPhone,
                     rdvIntervention: structured.rdvIntervention,
                     endComment: String(e.endComment != null ? e.endComment : (e.finIntervention || '')).trim(),
-                    endPhoto: String(e.endPhoto || '').trim()
+                    endPhotos: (function() {
+                        let out = [];
+                        if (Array.isArray(e.endPhotos)) out = normalizeEndPhotosList(e.endPhotos);
+                        if (e.endPhoto && String(e.endPhoto).indexOf('data:image') === 0) {
+                            out.push({ src: String(e.endPhoto), comment: '' });
+                        }
+                        return out;
+                    })(),
+                    completed: !!e.completed
                 };
             });
             if (!agentTaskLists) agentTaskLists = {};
@@ -4685,7 +4805,9 @@ if (resetAckBtn) {
                 rdvAddress: s.rdvAddress || '',
                 rdvPhone: s.rdvPhone || '',
                 rdvIntervention: s.rdvIntervention || '',
-                endComment: (structured && structured.endComment) ? String(structured.endComment) : ''
+                endComment: (structured && structured.endComment) ? String(structured.endComment) : '',
+                endPhotos: (structured && Array.isArray(structured.endPhotos)) ? structured.endPhotos.slice() : [],
+                completed: !!(structured && structured.completed)
             });
             setAgentDayTaskList(agentId, dateStr, list);
         }
@@ -4712,9 +4834,13 @@ if (resetAckBtn) {
                 endComment: (structured && structured.endComment != null)
                     ? String(structured.endComment)
                     : prevEnd,
-                endPhoto: (structured && structured.endPhoto != null)
-                    ? String(structured.endPhoto)
-                    : ((index >= 0 && index < list.length) ? (list[index].endPhoto || '') : '')
+                endPhotos: (structured && Array.isArray(structured.endPhotos))
+                    ? structured.endPhotos.slice()
+                    : ((index >= 0 && index < list.length && Array.isArray(list[index].endPhotos))
+                        ? list[index].endPhotos.slice() : []),
+                completed: (structured && structured.completed != null)
+                    ? !!structured.completed
+                    : ((index >= 0 && index < list.length) ? !!list[index].completed : false)
             };
             if (index < 0 || index >= list.length) {
                 appendAgentDayTask(agentId, dateStr, code, entry.description, entry);
@@ -9818,9 +9944,9 @@ function purgeReplacementArchives() {
             if (retrieveAllBtn) {
                 const dayList = (ctx && typeof getAgentDayTaskList === 'function')
                     ? getAgentDayTaskList(ctx.agentId, ctx.dateStr) : [];
-                const photoCount = dayList.filter(function(e) {
-                    return e && e.endPhoto && String(e.endPhoto).indexOf('data:image') === 0;
-                }).length;
+                const photoCount = dayList.reduce(function(n, e) {
+                    return n + normalizeEndPhotosList(e && e.endPhotos).length;
+                }, 0);
                 retrieveAllBtn.style.display = (canEdit && photoCount > 0) ? 'inline-block' : 'none';
                 if (photoCount > 0) {
                     retrieveAllBtn.textContent = '📥 Récupérer ' + photoCount + ' photo' + (photoCount > 1 ? 's' : '');
@@ -9907,14 +10033,20 @@ function purgeReplacementArchives() {
                 const code = entry.code;
                 const tDef = TASKS[code] || { label: code, color: '#95a5a6', text: '#fff', isReplacement: false };
                 const item = document.createElement('div');
-                item.className = 'cell-task-detail-item';
-                if (tDef.isReplacement) item.style.borderLeftColor = '#e74c3c';
-                else if (tDef.isRest) item.style.borderLeftColor = '#95a5a6';
+                item.className = 'cell-task-detail-item' + (entry.completed ? ' ctd-completed' : '');
+                if (entry.completed) {
+                    item.style.borderLeftColor = '#e67e22';
+                } else if (tDef.isReplacement) {
+                    item.style.borderLeftColor = '#e74c3c';
+                } else if (tDef.isRest) {
+                    item.style.borderLeftColor = '#95a5a6';
+                }
 
                 let html = '<div>'
                     + '<span class="ctd-code" style="background:' + (tDef.color || '#95a5a6') + ';color:' + (tDef.text || '#fff') + ';">'
                     + String(code).replace(/</g, '&lt;') + '</span>'
                     + '<span class="ctd-label">' + String(tDef.label || code).replace(/</g, '&lt;') + '</span>'
+                    + (entry.completed ? '<span class="ctd-completed-badge">✓ Terminé</span>' : '')
                     + '</div>';
                 if (typeof renderStructuredTaskCommentHtml === 'function') {
                     html += renderStructuredTaskCommentHtml(entry);
@@ -9924,59 +10056,79 @@ function purgeReplacementArchives() {
                 } else {
                     html += '<div class="ctd-desc" style="color:#aaa;font-style:italic;">Aucun détail RDV / intervention</div>';
                 }
-                // Commentaire de fin d'intervention (agent peut saisir / modifier)
+                // Commentaire de fin d'intervention + multi-photos + termine
                 const endVal = String(entry.endComment || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                 const canEnd = (typeof canEditTaskEndComment === 'function')
                     ? canEditTaskEndComment(ctx.agentId)
                     : true;
+                const photos = normalizeEndPhotosList(entry.endPhotos || []);
+                const canRetrievePhoto = !isReadOnly;
                 html += '<div class="ctd-end-comment">';
                 html += '<label>📝 Commentaire de fin d\'intervention</label>';
-                const hasPhoto = !!(entry.endPhoto && String(entry.endPhoto).indexOf('data:image') === 0);
-                const canRetrievePhoto = !isReadOnly; // RE / Admin uniquement
                 if (canEnd) {
                     html += '<textarea id="endComment_' + idx + '" placeholder="Saisir le compte-rendu / fin d\'intervention…">'
                         + endVal + '</textarea>';
                     html += '<div class="ctd-end-photo-wrap" id="endPhotoWrap_' + idx + '">';
-                    if (hasPhoto) {
-                        html += '<img id="endPhotoPreview_' + idx + '" src="' + String(entry.endPhoto).replace(/"/g, '&quot;') + '" alt="Photo fin d\'intervention" title="Cliquer pour agrandir" onclick="event.stopPropagation(); openEndPhotoLightbox(this.src)">';
-                    } else {
-                        html += '<img id="endPhotoPreview_' + idx + '" src="" alt="" style="display:none;">';
-                    }
+                    html += '<div class="ctd-end-photo-grid" id="endPhotoGrid_' + idx + '">';
+                    photos.forEach(function(p, pi) {
+                        const src = String((p && p.src) ? p.src : p).replace(/"/g, '&quot;');
+                        const cap = String((p && p.comment) ? p.comment : '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                        html += '<div class="ctd-photo-item">'
+                            + '<img src="' + src + '" alt="Photo ' + (pi + 1) + '" '
+                            + 'onclick="event.stopPropagation(); openEndPhotoLightbox(this.src)">'
+                            + '<button type="button" class="ctd-photo-rm" title="Retirer" '
+                            + 'onclick="event.stopPropagation(); removeEndPhotoAt(' + idx + ',' + pi + ')">×</button>'
+                            + '<textarea class="ctd-photo-caption" id="photoComment_' + idx + '_' + pi + '" '
+                            + 'placeholder="Commentaire sur la photo…" onclick="event.stopPropagation();">' + cap + '</textarea>'
+                            + '</div>';
+                    });
+                    html += '</div>';
                     html += '<div class="ctd-end-photo-actions">'
-                        + '<input type="file" id="endPhotoInput_' + idx + '" accept="image/*" capture="environment" '
+                        + '<input type="file" id="endPhotoInput_' + idx + '" accept="image/*" capture="environment" multiple '
                         + 'onchange="event.stopPropagation(); onEndPhotoFileSelected(' + idx + ', this)">'
-                        + '<button type="button" class="btn btn-secondary" style="font-size:0.75rem;padding:3px 8px;" '
-                        + 'onclick="event.stopPropagation(); clearEndPhotoPreview(' + idx + ')">🗑️ Retirer la photo</button>';
-                    if (hasPhoto && canRetrievePhoto) {
+                        + '<span style="font-size:0.72rem;color:#666;">Plusieurs photos possibles</span>';
+                    if (photos.length && canRetrievePhoto) {
                         html += '<button type="button" class="btn" style="font-size:0.75rem;padding:3px 8px;background:#8e44ad;color:#fff;" '
                             + 'onclick="event.stopPropagation(); retrieveAndDeleteEndPhoto(' + idx + ')" '
-                            + 'title="Télécharge la photo puis la supprime de la base de données">'
-                            + '📥 Récupérer &amp; supprimer</button>';
+                            + 'title="Telecharge puis supprime de la base">'
+                            + '📥 Récupérer &amp; supprimer (' + photos.length + ')</button>';
                     }
                     html += '</div></div>';
                     html += '<div class="ctd-end-actions">'
                         + '<button type="button" class="btn btn-success" style="font-size:0.78rem;padding:4px 10px;" '
                         + 'onclick="event.stopPropagation(); saveAgentDayTaskEndComment(' + idx + ')">💾 Enregistrer</button>'
+                        + '<button type="button" class="btn" style="font-size:0.78rem;padding:4px 10px;background:'
+                        + (entry.completed ? '#7f8c8d' : '#e67e22') + ';color:#fff;" '
+                        + 'onclick="event.stopPropagation(); toggleAgentDayTaskCompleted(' + idx + ')">'
+                        + (entry.completed ? '↩ Réouvrir' : '✓ Terminé') + '</button>'
                         + '<span id="endCommentStatus_' + idx + '" style="font-size:0.75rem;color:#1e8449;"></span>'
                         + '</div>';
                 } else {
                     html += endVal
                         ? '<div class="ctd-end-readonly">' + endVal + '</div>'
                         : '<div class="ctd-end-readonly" style="color:#888;font-style:italic;">Aucun commentaire de fin</div>';
-                    if (hasPhoto) {
-                        html += '<div class="ctd-end-photo-wrap"><img src="'
-                            + String(entry.endPhoto).replace(/"/g, '&quot;')
-                            + '" alt="Photo fin d\'intervention" title="Cliquer pour agrandir" onclick="event.stopPropagation(); openEndPhotoLightbox(this.src)">';
+                    if (photos.length) {
+                        html += '<div class="ctd-end-photo-wrap"><div class="ctd-end-photo-grid">';
+                        photos.forEach(function(p, pi) {
+                            const src = String((p && p.src) ? p.src : p).replace(/"/g, '&quot;');
+                            const cap = String((p && p.comment) ? p.comment : '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                            html += '<div class="ctd-photo-item"><img src="' + src
+                                + '" alt="Photo ' + (pi + 1) + '" onclick="event.stopPropagation(); openEndPhotoLightbox(this.src)">'
+                                + (cap ? '<div class="ctd-photo-caption-ro">' + cap + '</div>' : '')
+                                + '</div>';
+                        });
+                        html += '</div>';
                         if (canRetrievePhoto) {
                             html += '<div class="ctd-end-photo-actions">'
                                 + '<button type="button" class="btn" style="font-size:0.75rem;padding:3px 8px;background:#8e44ad;color:#fff;" '
                                 + 'onclick="event.stopPropagation(); retrieveAndDeleteEndPhoto(' + idx + ')">'
-                                + '📥 Récupérer &amp; supprimer</button></div>';
+                                + '📥 Récupérer &amp; supprimer (' + photos.length + ')</button></div>';
                         }
                         html += '</div>';
                     }
                 }
                 html += '</div>';
+
                 html += '<div class="ctd-actions">';
                 if (canEdit) {
                     html += '<button type="button" class="btn" style="font-size:0.78rem;padding:4px 8px;background:#2980b9;" '
@@ -10018,12 +10170,29 @@ function purgeReplacementArchives() {
         }
 
         /** Photo en attente (avant enregistrement) par index de tâche */
+
+        /** Photos en attente : { index: dataUrl[] } ; __replace_N = true => remplace la liste */
         let pendingEndPhotos = {};
 
-        /**
-         * Compresse une image (max ~900px, JPEG) pour limiter la taille Firebase.
-         * @returns {Promise<string>} data URL
-         */
+
+        function getMergedEndPhotosForIndex(index, listEntry) {
+            const existing = normalizeEndPhotosList(listEntry && listEntry.endPhotos);
+            if (pendingEndPhotos['__replace_' + index]) {
+                return normalizeEndPhotosList(pendingEndPhotos[index] || []);
+            }
+            const pending = normalizeEndPhotosList(pendingEndPhotos[index] || []);
+            return existing.concat(pending);
+        }
+
+        function collectPhotoCommentsFromDom(index, photos) {
+            const out = normalizeEndPhotosList(photos || []);
+            out.forEach(function(p, pi) {
+                const el = document.getElementById('photoComment_' + index + '_' + pi);
+                if (el) p.comment = String(el.value || '').trim();
+            });
+            return out;
+        }
+
         function compressImageFileToDataUrl(file, maxSide, quality) {
             maxSide = maxSide || 900;
             quality = quality || 0.65;
@@ -10036,30 +10205,17 @@ function purgeReplacementArchives() {
                 reader.onload = function() {
                     const img = new Image();
                     img.onload = function() {
-                        let w = img.width;
-                        let h = img.height;
+                        let w = img.width, h = img.height;
                         if (w > maxSide || h > maxSide) {
-                            if (w >= h) {
-                                h = Math.round(h * (maxSide / w));
-                                w = maxSide;
-                            } else {
-                                w = Math.round(w * (maxSide / h));
-                                h = maxSide;
-                            }
+                            if (w >= h) { h = Math.round(h * (maxSide / w)); w = maxSide; }
+                            else { w = Math.round(w * (maxSide / h)); h = maxSide; }
                         }
                         const canvas = document.createElement('canvas');
-                        canvas.width = w;
-                        canvas.height = h;
-                        const ctx2d = canvas.getContext('2d');
-                        ctx2d.drawImage(img, 0, 0, w, h);
+                        canvas.width = w; canvas.height = h;
+                        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
                         let dataUrl = canvas.toDataURL('image/jpeg', quality);
-                        // Si trop gros (> ~450 Ko), recompresser
-                        if (dataUrl.length > 600000) {
-                            dataUrl = canvas.toDataURL('image/jpeg', 0.45);
-                        }
-                        if (dataUrl.length > 900000) {
-                            dataUrl = canvas.toDataURL('image/jpeg', 0.3);
-                        }
+                        if (dataUrl.length > 600000) dataUrl = canvas.toDataURL('image/jpeg', 0.45);
+                        if (dataUrl.length > 900000) dataUrl = canvas.toDataURL('image/jpeg', 0.3);
                         resolve(dataUrl);
                     };
                     img.onerror = function() { reject(new Error('Lecture image impossible')); };
@@ -10070,37 +10226,78 @@ function purgeReplacementArchives() {
             });
         }
 
-        function onEndPhotoFileSelected(index, inputEl) {
-            const file = inputEl && inputEl.files && inputEl.files[0];
-            if (!file) return;
-            const status = document.getElementById('endCommentStatus_' + index);
-            if (status) status.textContent = 'Compression photo…';
-            compressImageFileToDataUrl(file, 900, 0.65).then(function(dataUrl) {
-                pendingEndPhotos[index] = dataUrl;
-                const prev = document.getElementById('endPhotoPreview_' + index);
-                if (prev) {
-                    prev.src = dataUrl;
-                    prev.style.display = 'block';
-                }
-                if (status) status.textContent = 'Photo prête — cliquez Enregistrer';
-            }).catch(function(err) {
-                alert('Impossible de charger la photo : ' + (err && err.message ? err.message : err));
-                if (status) status.textContent = '';
-                if (inputEl) inputEl.value = '';
+        function refreshEndPhotoGrid(index, photos) {
+            const grid = document.getElementById('endPhotoGrid_' + index);
+            if (!grid) return;
+            const list = normalizeEndPhotosList(photos || []);
+            grid.innerHTML = '';
+            list.forEach(function(p, pi) {
+                const wrap = document.createElement('div');
+                wrap.className = 'ctd-photo-item';
+                const img = document.createElement('img');
+                img.src = p.src;
+                img.alt = 'Photo ' + (pi + 1);
+                img.onclick = function(ev) { ev.stopPropagation(); openEndPhotoLightbox(p.src); };
+                const rm = document.createElement('button');
+                rm.type = 'button';
+                rm.className = 'ctd-photo-rm';
+                rm.title = 'Retirer';
+                rm.textContent = '\u00d7';
+                rm.onclick = function(ev) { ev.stopPropagation(); removeEndPhotoAt(index, pi); };
+                const cap = document.createElement('textarea');
+                cap.className = 'ctd-photo-caption';
+                cap.id = 'photoComment_' + index + '_' + pi;
+                cap.placeholder = 'Commentaire sur la photo\u2026';
+                cap.value = p.comment || '';
+                cap.onclick = function(ev) { ev.stopPropagation(); };
+                wrap.appendChild(img);
+                wrap.appendChild(rm);
+                wrap.appendChild(cap);
+                grid.appendChild(wrap);
             });
         }
 
-        function clearEndPhotoPreview(index) {
-            pendingEndPhotos[index] = '';
-            const prev = document.getElementById('endPhotoPreview_' + index);
-            if (prev) {
-                prev.src = '';
-                prev.style.display = 'none';
-            }
-            const input = document.getElementById('endPhotoInput_' + index);
-            if (input) input.value = '';
+        function onEndPhotoFileSelected(index, inputEl) {
+            const files = inputEl && inputEl.files ? Array.prototype.slice.call(inputEl.files) : [];
+            if (!files.length) return;
             const status = document.getElementById('endCommentStatus_' + index);
-            if (status) status.textContent = 'Photo retirée — cliquez Enregistrer pour valider';
+            if (status) status.textContent = 'Compression photo(s)\u2026';
+            // Conserver les commentaires deja saisis
+            const ctx0 = cellTasksDetailContext;
+            const list0 = (ctx0 && typeof getAgentDayTaskList === 'function')
+                ? getAgentDayTaskList(ctx0.agentId, ctx0.dateStr) : [];
+            let current = collectPhotoCommentsFromDom(index, getMergedEndPhotosForIndex(index, list0[index] || {}));
+            if (!Array.isArray(pendingEndPhotos[index])) pendingEndPhotos[index] = [];
+            Promise.all(files.map(function(f) { return compressImageFileToDataUrl(f, 900, 0.65); }))
+                .then(function(urls) {
+                    urls.forEach(function(u) {
+                        current.push({ src: u, comment: '' });
+                    });
+                    pendingEndPhotos[index] = current;
+                    pendingEndPhotos['__replace_' + index] = true;
+                    refreshEndPhotoGrid(index, current);
+                    if (status) status.textContent = urls.length + ' photo(s) pr\u00eate(s) \u2014 ajoutez un commentaire puis Enregistrer';
+                    if (inputEl) inputEl.value = '';
+                })
+                .catch(function(err) {
+                    alert('Impossible de charger la photo : ' + (err && err.message ? err.message : err));
+                    if (status) status.textContent = '';
+                    if (inputEl) inputEl.value = '';
+                });
+        }
+
+        function removeEndPhotoAt(index, photoIdx) {
+            const ctx = cellTasksDetailContext;
+            if (!ctx) return;
+            const list = getAgentDayTaskList(ctx.agentId, ctx.dateStr);
+            let merged = collectPhotoCommentsFromDom(index, getMergedEndPhotosForIndex(index, list[index] || {}));
+            if (photoIdx < 0 || photoIdx >= merged.length) return;
+            merged.splice(photoIdx, 1);
+            pendingEndPhotos[index] = merged;
+            pendingEndPhotos['__replace_' + index] = true;
+            refreshEndPhotoGrid(index, merged);
+            const status = document.getElementById('endCommentStatus_' + index);
+            if (status) status.textContent = 'Photo retir\u00e9e \u2014 cliquez Enregistrer pour valider';
         }
 
         function openEndPhotoLightbox(src) {
@@ -10115,115 +10312,88 @@ function purgeReplacementArchives() {
             document.body.appendChild(overlay);
         }
 
-        /**
-         * RE / Admin : télécharge la photo de fin d'intervention puis la supprime de la base.
-         */
         function retrieveAndDeleteEndPhoto(index) {
             if (isReadOnly) {
-                alert('Réservé aux RE et Administrateurs.');
+                alert('R\u00e9serv\u00e9 aux RE et Administrateurs.');
                 return;
             }
             const ctx = cellTasksDetailContext;
             if (!ctx || !ctx.agentId || !ctx.dateStr) return;
             const list = getAgentDayTaskList(ctx.agentId, ctx.dateStr);
             if (index < 0 || index >= list.length) return;
-            const photo = list[index].endPhoto;
-            if (!photo || String(photo).indexOf('data:image') !== 0) {
-                alert('Aucune photo à récupérer pour cette tâche.');
+            const photos = normalizeEndPhotosList(list[index].endPhotos || []);
+            if (!photos.length) {
+                alert('Aucune photo \u00e0 r\u00e9cup\u00e9rer pour cette t\u00e2che.');
                 return;
             }
-            if (!confirm(
-                'Récupérer cette photo ?\n\n' +
-                '1. La photo sera téléchargée sur cet appareil\n' +
-                '2. Elle sera ensuite supprimée de la base de données\n\n' +
-                'Le commentaire texte est conservé.'
-            )) return;
-
-            // Nom de fichier lisible
+            if (!confirm('R\u00e9cup\u00e9rer ' + photos.length + ' photo(s) ?\n\n1. T\u00e9l\u00e9chargement local\n2. Suppression de la base\n\nLe commentaire texte de l\'intervention est conserv\u00e9.')) return;
             const code = list[index].code || 'tache';
             const safeAgent = String(ctx.agentName || ctx.agentId).replace(/[^a-zA-Z0-9_-]+/g, '_');
-            const fileName = 'photo_' + safeAgent + '_' + ctx.dateStr + '_' + code + '_' + (index + 1) + '.jpg';
-
-            try {
-                const a = document.createElement('a');
-                a.href = photo;
-                a.download = fileName;
-                a.style.display = 'none';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-            } catch (e) {
-                alert('Échec du téléchargement : ' + (e && e.message ? e.message : e));
-                return;
-            }
-
-            // Suppression de la base après téléchargement
-            list[index].endPhoto = '';
+            photos.forEach(function(photo, n) {
+                const fileName = 'photo_' + safeAgent + '_' + ctx.dateStr + '_' + code + '_' + (index + 1) + '_' + (n + 1) + '.jpg';
+                try {
+                    const a = document.createElement('a');
+                    a.href = photo.src;
+                    a.download = fileName;
+                    a.style.display = 'none';
+                    document.body.appendChild(a);
+                    setTimeout(function() { a.click(); document.body.removeChild(a); }, n * 350);
+                } catch (e) {}
+            });
+            list[index].endPhotos = [];
             setAgentDayTaskList(ctx.agentId, ctx.dateStr, list);
-            if (pendingEndPhotos) delete pendingEndPhotos[index];
+            delete pendingEndPhotos[index];
+            delete pendingEndPhotos['__replace_' + index];
             if (typeof renderAll === 'function') renderAll(true);
-            if (typeof renderCellTasksDetailList === 'function') renderCellTasksDetailList();
-            alert('Photo téléchargée et supprimée de la base de données.');
+            setTimeout(function() {
+                if (typeof renderCellTasksDetailList === 'function') renderCellTasksDetailList();
+                alert(photos.length + ' photo(s) t\u00e9l\u00e9charg\u00e9e(s) et supprim\u00e9e(s) de la base.');
+            }, photos.length * 350 + 200);
         }
 
-        /**
-         * RE / Admin : récupère toutes les photos du jour affiché puis les supprime.
-         */
         function retrieveAndDeleteAllEndPhotosForDay() {
             if (isReadOnly) {
-                alert('Réservé aux RE et Administrateurs.');
+                alert('R\u00e9serv\u00e9 aux RE et Administrateurs.');
                 return;
             }
             const ctx = cellTasksDetailContext;
             if (!ctx || !ctx.agentId || !ctx.dateStr) return;
             const list = getAgentDayTaskList(ctx.agentId, ctx.dateStr);
-            const withPhoto = [];
-            list.forEach(function(e, i) {
-                if (e && e.endPhoto && String(e.endPhoto).indexOf('data:image') === 0) {
-                    withPhoto.push(i);
-                }
+            let total = 0;
+            list.forEach(function(e) {
+                total += normalizeEndPhotosList(e && e.endPhotos).length;
             });
-            if (!withPhoto.length) {
-                alert('Aucune photo à récupérer pour ce jour.');
+            if (!total) {
+                alert('Aucune photo \u00e0 r\u00e9cup\u00e9rer pour ce jour.');
                 return;
             }
-            if (!confirm(
-                'Récupérer ' + withPhoto.length + ' photo(s) de ce jour ?\n\n' +
-                'Elles seront téléchargées puis supprimées de la base.\n' +
-                'Les commentaires texte sont conservés.'
-            )) return;
-
+            if (!confirm('R\u00e9cup\u00e9rer ' + total + ' photo(s) de ce jour ?\n\nT\u00e9l\u00e9chargement puis suppression de la base.\nCommentaires d\'intervention conserv\u00e9s.')) return;
             const safeAgent = String(ctx.agentName || ctx.agentId).replace(/[^a-zA-Z0-9_-]+/g, '_');
-            withPhoto.forEach(function(i, n) {
-                const code = list[i].code || 'tache';
-                const fileName = 'photo_' + safeAgent + '_' + ctx.dateStr + '_' + code + '_' + (i + 1) + '.jpg';
-                try {
-                    const a = document.createElement('a');
-                    a.href = list[i].endPhoto;
-                    a.download = fileName;
-                    a.style.display = 'none';
-                    document.body.appendChild(a);
-                    // Délai léger pour enchaîner plusieurs téléchargements
-                    setTimeout(function() {
-                        a.click();
-                        document.body.removeChild(a);
-                    }, n * 350);
-                } catch (e) {}
-                list[i].endPhoto = '';
+            let delay = 0;
+            list.forEach(function(e, i) {
+                const photos = normalizeEndPhotosList(e.endPhotos);
+                const code = e.code || 'tache';
+                photos.forEach(function(photo, n) {
+                    const fileName = 'photo_' + safeAgent + '_' + ctx.dateStr + '_' + code + '_' + (i + 1) + '_' + (n + 1) + '.jpg';
+                    try {
+                        const a = document.createElement('a');
+                        a.href = photo.src; a.download = fileName; a.style.display = 'none';
+                        document.body.appendChild(a);
+                        setTimeout(function() { a.click(); document.body.removeChild(a); }, delay);
+                        delay += 350;
+                    } catch (err) {}
+                });
+                e.endPhotos = [];
             });
             setAgentDayTaskList(ctx.agentId, ctx.dateStr, list);
             pendingEndPhotos = {};
             if (typeof renderAll === 'function') renderAll(true);
             setTimeout(function() {
                 if (typeof renderCellTasksDetailList === 'function') renderCellTasksDetailList();
-                alert(withPhoto.length + ' photo(s) téléchargée(s) et supprimée(s) de la base.');
-            }, withPhoto.length * 350 + 200);
+                alert(total + ' photo(s) t\u00e9l\u00e9charg\u00e9e(s) et supprim\u00e9e(s) de la base.');
+            }, delay + 200);
         }
 
-
-        /**
-         * Enregistre le commentaire + photo de fin d'intervention d'une tâche.
-         */
         function saveAgentDayTaskEndComment(index) {
             const ctx = cellTasksDetailContext;
             if (!ctx || !ctx.agentId || !ctx.dateStr) return;
@@ -10235,20 +10405,43 @@ function purgeReplacementArchives() {
             const list = getAgentDayTaskList(ctx.agentId, ctx.dateStr);
             if (index < 0 || index >= list.length) return;
             list[index].endComment = ta ? String(ta.value || '').trim() : (list[index].endComment || '');
-            // Photo : pending (nouvelle / retirée) sinon conserver l'existante
-            if (Object.prototype.hasOwnProperty.call(pendingEndPhotos, index)) {
-                list[index].endPhoto = pendingEndPhotos[index] || '';
-            } else {
-                list[index].endPhoto = list[index].endPhoto || '';
-            }
+
+            // Photos + commentaires individuels depuis le DOM
+            let photos = getMergedEndPhotosForIndex(index, list[index]);
+            photos = collectPhotoCommentsFromDom(index, photos);
+            list[index].endPhotos = photos;
+
             setAgentDayTaskList(ctx.agentId, ctx.dateStr, list);
             delete pendingEndPhotos[index];
+            delete pendingEndPhotos['__replace_' + index];
             if (typeof renderAll === 'function') renderAll(true);
             const status = document.getElementById('endCommentStatus_' + index);
             if (status) {
-                status.textContent = 'Enregistré ✓';
+                status.textContent = 'Enregistr\u00e9 \u2713';
                 setTimeout(function() { if (status) status.textContent = ''; }, 2500);
             }
+            if (typeof renderCellTasksDetailList === 'function') renderCellTasksDetailList();
+        }
+
+        function toggleAgentDayTaskCompleted(index) {
+            const ctx = cellTasksDetailContext;
+            if (!ctx || !ctx.agentId || !ctx.dateStr) return;
+            if (!canEditTaskEndComment(ctx.agentId)) {
+                alert('Vous ne pouvez pas modifier cette intervention.');
+                return;
+            }
+            const list = getAgentDayTaskList(ctx.agentId, ctx.dateStr);
+            if (index < 0 || index >= list.length) return;
+            list[index].completed = !list[index].completed;
+            const ta = document.getElementById('endComment_' + index);
+            if (ta) list[index].endComment = String(ta.value || '').trim();
+            let photos = getMergedEndPhotosForIndex(index, list[index]);
+            photos = collectPhotoCommentsFromDom(index, photos);
+            list[index].endPhotos = photos;
+            setAgentDayTaskList(ctx.agentId, ctx.dateStr, list);
+            delete pendingEndPhotos[index];
+            delete pendingEndPhotos['__replace_' + index];
+            if (typeof renderAll === 'function') renderAll(true);
             if (typeof renderCellTasksDetailList === 'function') renderCellTasksDetailList();
         }
 
