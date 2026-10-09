@@ -5297,20 +5297,17 @@ function finishMultiSelectDrag() {
     clearMultiSelectHighlights();
 
     if (!dates.length) return;
-    // Une seule date : comportement normal
+    // Une seule date : ne rien ouvrir ici — le clic ouvre la liste des activités (agents)
+    // ou la fenêtre tâche (équipe) via cellDiv.onclick
     if (dates.length === 1) {
-        if (typeof canModifyPlanning === 'function' && !canModifyPlanning()) return;
-        openTaskModal(st.isTeam, st.targetId, st.targetName, dates[0], st.currentTaskCode, st.currentDesc);
         return;
     }
-    // Plusieurs dates : uniquement agents (pas équipe / RPL multi)
+    // Plusieurs dates (glisser-déposer réel) : attribution multi-jours
+    if (typeof canModifyPlanning === 'function' && !canModifyPlanning()) return;
     if (st.isTeam) {
-        // Pour l'équipe : ouvrir sur la première date (rotation déjà gérée ailleurs)
-        if (typeof canModifyPlanning === 'function' && !canModifyPlanning()) return;
         openTaskModal(true, st.targetId, st.targetName, dates[0], st.currentTaskCode, st.currentDesc);
         return;
     }
-    if (typeof canModifyPlanning === 'function' && !canModifyPlanning()) return;
     openTaskModal(false, st.targetId, st.targetName, dates[0], st.currentTaskCode, st.currentDesc, dates);
 }
 
@@ -5377,13 +5374,12 @@ function bindCellEvents(cellDiv, isTeam, targetId, targetName, dateStr, currentT
         highlightMultiSelectRange(targetId, isTeam, multiSelectState.startDate, dateStr);
     };
 
-    // --- GESTION DU DOUBLE-CLIC (PC / SOURIS) ---
+    // --- CLIC : agents → toujours la liste des activités ; équipe → modal tâche si éditable ---
     cellDiv.onclick = (e) => {
         if (touchPreventClick) {
             touchPreventClick = false;
             return;
         }
-        // Si un drag vient de se terminer, ne pas rouvrir via clic
         if (cellDiv._skipNextClick) {
             cellDiv._skipNextClick = false;
             return;
@@ -5392,22 +5388,17 @@ function bindCellEvents(cellDiv, isTeam, targetId, targetName, dateStr, currentT
         if (clickTimer) {
             clearTimeout(clickTimer);
             clickTimer = null;
-            // DOUBLE CLIC agent : même comportement = liste des activités
-            if (!isTeam && typeof openCellTasksDetailModal === 'function') {
+        }
+        // Agent : uniquement la fenêtre listant les tâches (ajout via le bouton dedans)
+        if (!isTeam) {
+            if (typeof openCellTasksDetailModal === 'function') {
                 openCellTasksDetailModal(targetId, targetName, dateStr);
-            } else if (typeof canModifyPlanning === 'function' ? canModifyPlanning() : !isReadOnly) {
-                openTaskModal(isTeam, targetId, targetName, dateStr, currentTaskCode, currentDesc);
             }
-        } else {
-            clickTimer = setTimeout(() => {
-                clickTimer = null;
-                // SIMPLE CLIC agent → détail des tâches (+ bouton Ajouter pour RE/Admin)
-                if (!isTeam && typeof openCellTasksDetailModal === 'function') {
-                    openCellTasksDetailModal(targetId, targetName, dateStr);
-                } else if (typeof canModifyPlanning === 'function' ? canModifyPlanning() : !isReadOnly) {
-                    openTaskModal(isTeam, targetId, targetName, dateStr, currentTaskCode, currentDesc);
-                }
-            }, 250);
+            return;
+        }
+        // Ligne roulement équipe : modal d'affectation si droit d'édition
+        if (typeof canModifyPlanning === 'function' ? canModifyPlanning() : !isReadOnly) {
+            openTaskModal(true, targetId, targetName, dateStr, currentTaskCode, currentDesc);
         }
     };
 }
@@ -5418,7 +5409,15 @@ if (typeof window !== 'undefined' && !window._planningDragMouseUpBound) {
     document.addEventListener('mouseup', function() {
         if (!multiSelectState) return;
         const st = multiSelectState;
-        // Marquer les cellules pour éviter le clic fantôme
+        const moved = !!(st.moved || (st.startDate && st.endDate && st.startDate !== st.endDate));
+        if (!moved) {
+            // Simple clic : annuler le drag sans ouvrir de fenêtre et SANS bloquer le onclick
+            multiSelectState = null;
+            document.body.classList.remove('planning-dragging');
+            if (typeof clearMultiSelectHighlights === 'function') clearMultiSelectHighlights();
+            return;
+        }
+        // Vrai glisser-déposer multi-jours : bloquer le clic fantôme puis ouvrir
         const selector = '.task-cell[data-target-id="' + st.targetId + '"]';
         document.querySelectorAll(selector).forEach(function(el) {
             el._skipNextClick = true;
@@ -5436,21 +5435,13 @@ if (typeof window !== 'undefined' && !window._planningDragMouseUpBound) {
 // variante simplifiée de la logique désormais intégrée dans bindCellEvents
         // Voir pour suppression de la fonction si plus utile. Faire vérification avant suppression
 function handleTaskCellClick(event, isTeam, targetId, targetName, dateStr, currentTaskCode, currentDesc) {
-    if (clickTimer) {
-        clearTimeout(clickTimer);
-        clickTimer = null;
-        // DOUBLE CLIC :
-        if (!isReadOnly) {
-            openTaskModal(isTeam, targetId, targetName, dateStr, currentTaskCode, currentDesc);
-        }
-    } else {
-        clickTimer = setTimeout(() => {
-            clickTimer = null;
-            // SIMPLE CLIC :
-            if (!isReadOnly) {
-                openTaskModal(isTeam, targetId, targetName, dateStr, currentTaskCode, currentDesc);
-            }
-        }, 250);
+    // Délégué à bindCellEvents : agents → liste des activités uniquement
+    if (!isTeam && typeof openCellTasksDetailModal === 'function') {
+        openCellTasksDetailModal(targetId, targetName, dateStr);
+        return;
+    }
+    if (typeof canModifyPlanning === 'function' ? canModifyPlanning() : !isReadOnly) {
+        openTaskModal(isTeam, targetId, targetName, dateStr, currentTaskCode, currentDesc);
     }
 }
 
