@@ -829,6 +829,32 @@
             word-break: break-word;
             line-height: 1.4;
         }
+        .cell-task-detail-item .ctd-structured {
+            margin-top: 8px;
+            font-size: 0.82rem;
+            background: #fff;
+            border: 1px solid #e0e6ed;
+            border-radius: 6px;
+            padding: 8px 10px;
+            line-height: 1.45;
+        }
+        .cell-task-detail-item .ctd-structured .ctd-row {
+            display: grid;
+            grid-template-columns: 120px 1fr;
+            gap: 6px 10px;
+            margin-bottom: 6px;
+        }
+        .cell-task-detail-item .ctd-structured .ctd-row:last-child { margin-bottom: 0; }
+        .cell-task-detail-item .ctd-structured .ctd-k {
+            font-weight: 700;
+            color: #2c3e50;
+            font-size: 0.75rem;
+        }
+        .cell-task-detail-item .ctd-structured .ctd-v {
+            color: #333;
+            word-break: break-word;
+            white-space: pre-wrap;
+        }
         .cell-task-detail-item .ctd-actions {
             margin-top: 8px;
             display: flex;
@@ -1345,15 +1371,6 @@
     </div>
 
     <div class="planning-layout">
-        <div class="rpl-side-column">
-            <button type="button" class="absence-request-btn" id="absenceRequestOpenBtn" onclick="openAbsenceRequestModal()">
-                🏖️ Demande d'absence
-            </button>
-            <button type="button" class="absence-process-btn" id="absenceProcessOpenBtn" onclick="openAbsenceProcessModal()" style="display:none;">
-                📥 Traitement des absences <span class="abs-pending-count" id="absencePendingCount" style="display:none;">0</span>
-            </button>
-        </div>
-
         <div class="table-container">
             <table id="planningTable" class="collapsed-skills">
                 <thead>
@@ -1400,9 +1417,26 @@
             </div>
             <div id="taskPickerGrid" class="task-picker-grid"></div>
 
-            <div class="form-group">
-                <label for="taskModalDescription">Description / Note explicative (Optionnelle) :</label>
-                <textarea id="taskModalDescription" rows="3" placeholder="Saisir un commentaire ou une précision sur cette tâche..."></textarea>
+            <div id="taskStructuredCommentBox" style="margin-top:8px; padding:12px; border:1px solid #d5dbdb; border-radius:8px; background:#f8fafb;">
+                <h3 style="margin:0 0 10px 0; font-size:0.92rem; color:#2c3e50; border:none; padding:0;">📝 Détails de l'intervention / RDV</h3>
+                <div class="form-group" style="margin-bottom:8px;">
+                    <label for="taskRdvTime">Heure du RDV</label>
+                    <input type="time" id="taskRdvTime" style="width:100%; padding:6px 8px; border:1px solid #ccc; border-radius:4px;">
+                </div>
+                <div class="form-group" style="margin-bottom:8px;">
+                    <label for="taskRdvAddress">Adresse du RDV</label>
+                    <input type="text" id="taskRdvAddress" placeholder="Ex. 12 rue de la République, 69001 Lyon" style="width:100%; padding:6px 8px; border:1px solid #ccc; border-radius:4px;">
+                </div>
+                <div class="form-group" style="margin-bottom:8px;">
+                    <label for="taskRdvPhone">Coordonnées téléphoniques</label>
+                    <input type="text" id="taskRdvPhone" placeholder="Ex. 06 12 34 56 78" style="width:100%; padding:6px 8px; border:1px solid #ccc; border-radius:4px;">
+                </div>
+                <div class="form-group" style="margin-bottom:0;">
+                    <label for="taskRdvIntervention">Description de l'intervention</label>
+                    <textarea id="taskRdvIntervention" rows="3" placeholder="Nature de l'intervention, consignes, matériel…" style="width:100%; padding:6px 8px; border:1px solid #ccc; border-radius:4px; resize:vertical;"></textarea>
+                </div>
+                <!-- Champ caché de compatibilité (texte structuré généré à la validation) -->
+                <textarea id="taskModalDescription" style="display:none;" rows="1"></textarea>
             </div>
 
             <div class="modal-actions">
@@ -4459,10 +4493,15 @@ if (resetAckBtn) {
             if (agentTaskLists && Array.isArray(agentTaskLists[key]) && agentTaskLists[key].length) {
                 return agentTaskLists[key].map(function(e) {
                     if (!e) return null;
-                    if (typeof e === 'string') return { code: e, description: '' };
+                    if (typeof e === 'string') return { code: e, description: '', rdvTime: '', rdvAddress: '', rdvPhone: '', rdvIntervention: '' };
+                    const parsed = parseStructuredTaskComment(e);
                     return {
                         code: String(e.code || e.taskCode || 'R'),
-                        description: String(e.description != null ? e.description : (e.desc || ''))
+                        description: String(e.description != null ? e.description : (e.desc || formatStructuredTaskComment(parsed) || '')),
+                        rdvTime: String(e.rdvTime != null ? e.rdvTime : parsed.rdvTime || ''),
+                        rdvAddress: String(e.rdvAddress != null ? e.rdvAddress : parsed.rdvAddress || ''),
+                        rdvPhone: String(e.rdvPhone != null ? e.rdvPhone : parsed.rdvPhone || ''),
+                        rdvIntervention: String(e.rdvIntervention != null ? e.rdvIntervention : parsed.rdvIntervention || '')
                     };
                 }).filter(function(e) { return e && e.code; });
             }
@@ -4494,9 +4533,23 @@ if (resetAckBtn) {
             const clean = (Array.isArray(list) ? list : []).filter(function(e) {
                 return e && (e.code || e.taskCode);
             }).map(function(e) {
+                const structured = {
+                    rdvTime: String(e.rdvTime || '').trim(),
+                    rdvAddress: String(e.rdvAddress || '').trim(),
+                    rdvPhone: String(e.rdvPhone || '').trim(),
+                    rdvIntervention: String(e.rdvIntervention || '').trim()
+                };
+                let description = String(e.description != null ? e.description : (e.desc || '')).trim();
+                if (!description && (structured.rdvTime || structured.rdvAddress || structured.rdvPhone || structured.rdvIntervention)) {
+                    description = formatStructuredTaskComment(structured);
+                }
                 return {
                     code: String(e.code || e.taskCode),
-                    description: String(e.description != null ? e.description : (e.desc || '')).trim()
+                    description: description,
+                    rdvTime: structured.rdvTime,
+                    rdvAddress: structured.rdvAddress,
+                    rdvPhone: structured.rdvPhone,
+                    rdvIntervention: structured.rdvIntervention
                 };
             });
             if (!agentTaskLists) agentTaskLists = {};
@@ -4521,9 +4574,17 @@ if (resetAckBtn) {
             }
         }
 
-        function appendAgentDayTask(agentId, dateStr, code, description) {
+        function appendAgentDayTask(agentId, dateStr, code, description, structured) {
             const list = getAgentDayTaskList(agentId, dateStr);
-            list.push({ code: code, description: description || '' });
+            const s = structured || parseStructuredTaskComment(description || '');
+            list.push({
+                code: code,
+                description: description || formatStructuredTaskComment(s),
+                rdvTime: s.rdvTime || '',
+                rdvAddress: s.rdvAddress || '',
+                rdvPhone: s.rdvPhone || '',
+                rdvIntervention: s.rdvIntervention || ''
+            });
             setAgentDayTaskList(agentId, dateStr, list);
         }
 
@@ -4534,13 +4595,22 @@ if (resetAckBtn) {
             setAgentDayTaskList(agentId, dateStr, list);
         }
 
-        function updateAgentDayTaskAt(agentId, dateStr, index, code, description) {
+        function updateAgentDayTaskAt(agentId, dateStr, index, code, description, structured) {
             const list = getAgentDayTaskList(agentId, dateStr);
+            const s = structured || parseStructuredTaskComment(description || '');
+            const entry = {
+                code: code,
+                description: description || formatStructuredTaskComment(s),
+                rdvTime: s.rdvTime || '',
+                rdvAddress: s.rdvAddress || '',
+                rdvPhone: s.rdvPhone || '',
+                rdvIntervention: s.rdvIntervention || ''
+            };
             if (index < 0 || index >= list.length) {
-                appendAgentDayTask(agentId, dateStr, code, description);
+                appendAgentDayTask(agentId, dateStr, code, entry.description, entry);
                 return;
             }
-            list[index] = { code: code, description: description || '' };
+            list[index] = entry;
             setAgentDayTaskList(agentId, dateStr, list);
         }
 
@@ -7462,6 +7532,9 @@ function generateAbsenceRequestId() {
 }
 
 function updateAbsencePendingBadge() {
+    // Demandes d'absence retirées de l'interface
+    return;
+
     const btn = document.getElementById('absenceProcessOpenBtn');
     const badge = document.getElementById('absencePendingCount');
     if (!btn || !badge) return;
@@ -7525,6 +7598,9 @@ function goToAbsenceProcessFromAlert() {
 
 
 function openAbsenceRequestModal() {
+    // Demandes d'absence retirées de l'interface
+    return;
+
     if (!currentUser || !currentUser.email) {
         alert('Connexion requise pour demander une absence.');
         return;
@@ -7733,6 +7809,9 @@ function submitAbsenceRequest() {
 }
 
 function openAbsenceProcessModal() {
+    // Demandes d'absence retirées de l'interface
+    return;
+
     if (isReadOnly) {
         alert('Accès réservé aux RE et Administrateurs.');
         return;
@@ -9332,18 +9411,13 @@ function purgeReplacementArchives() {
                     selectedTaskCodeInModal = code;
                     if (task.isReplacement && activeTaskCellSelection) {
                         const multi = activeTaskCellSelection.dateStrs && activeTaskCellSelection.dateStrs.length > 1;
-                        if (multi) {
-                            document.getElementById('taskModalDescription').value = '';
-                            document.getElementById('taskModalDescription').placeholder =
-                                'Laisser vide = commentaire auto par jour. Saisir un texte = ajouté au commentaire auto de chaque jour.';
-                        } else {
-                            const autoComment = buildRplAvailabilityComment(
-                                activeTaskCellSelection.isTeam,
-                                activeTaskCellSelection.targetId,
-                                activeTaskCellSelection.dateStr
-                            );
-                            document.getElementById('taskModalDescription').value = autoComment;
+                        // Les détails RDV restent saisis par l'utilisateur ; le commentaire auto RPL
+                        // (équipes dispo) est fusionné à la validation, pas prérempli dans les champs RDV.
+                        if (typeof clearStructuredTaskCommentInModal === 'function') {
+                            // Ne pas effacer si l'utilisateur a déjà saisi
                         }
+                        const hidden = document.getElementById('taskModalDescription');
+                        if (hidden && multi) hidden.value = '';
                     }
                 };
                 grid.appendChild(btn);
@@ -9388,6 +9462,120 @@ function purgeReplacementArchives() {
             );
         }
 
+
+
+        /**
+         * Construit le texte de commentaire structuré (stockage + affichage simple).
+         * @param {{rdvTime?:string,rdvAddress?:string,rdvPhone?:string,rdvIntervention?:string}} f
+         * @returns {string}
+         */
+        function formatStructuredTaskComment(f) {
+            f = f || {};
+            const lines = [];
+            if (f.rdvTime) lines.push('Heure RDV : ' + String(f.rdvTime).trim());
+            if (f.rdvAddress) lines.push('Adresse : ' + String(f.rdvAddress).trim());
+            if (f.rdvPhone) lines.push('Téléphone : ' + String(f.rdvPhone).trim());
+            if (f.rdvIntervention) lines.push('Intervention : ' + String(f.rdvIntervention).trim());
+            return lines.join('\n');
+        }
+
+        /**
+         * Parse un commentaire (texte ou objet entrée) en champs structurés.
+         * @param {string|object} src
+         * @returns {{rdvTime:string,rdvAddress:string,rdvPhone:string,rdvIntervention:string}}
+         */
+        function parseStructuredTaskComment(src) {
+            const out = { rdvTime: '', rdvAddress: '', rdvPhone: '', rdvIntervention: '' };
+            if (!src) return out;
+            if (typeof src === 'object') {
+                out.rdvTime = String(src.rdvTime || '').trim();
+                out.rdvAddress = String(src.rdvAddress || '').trim();
+                out.rdvPhone = String(src.rdvPhone || '').trim();
+                out.rdvIntervention = String(src.rdvIntervention || '').trim();
+                if (out.rdvTime || out.rdvAddress || out.rdvPhone || out.rdvIntervention) return out;
+                src = src.description || src.desc || '';
+            }
+            const text = String(src || '');
+            if (!text.trim()) return out;
+            const lines = text.split(/\r?\n/);
+            const extra = [];
+            lines.forEach(function(line) {
+                const t = line.trim();
+                if (!t) return;
+                const mTime = t.match(/^Heure\s*RDV\s*:\s*(.+)$/i);
+                const mAddr = t.match(/^Adresse\s*:\s*(.+)$/i);
+                const mPhone = t.match(/^(Téléphone|Telephone|Tél\.?|Tel\.?)\s*:\s*(.+)$/i);
+                const mInt = t.match(/^Intervention\s*:\s*(.+)$/i);
+                if (mTime) out.rdvTime = mTime[1].trim();
+                else if (mAddr) out.rdvAddress = mAddr[1].trim();
+                else if (mPhone) out.rdvPhone = (mPhone[2] || mPhone[1]).trim();
+                else if (mInt) out.rdvIntervention = mInt[1].trim();
+                else extra.push(t);
+            });
+            // Lignes libres → description intervention si vide
+            if (extra.length && !out.rdvIntervention) {
+                out.rdvIntervention = extra.join('\n');
+            } else if (extra.length) {
+                out.rdvIntervention = (out.rdvIntervention ? out.rdvIntervention + '\n' : '') + extra.join('\n');
+            }
+            return out;
+        }
+
+        /** Lit les champs structurés de la modale tâche */
+        function readStructuredTaskCommentFromModal() {
+            return {
+                rdvTime: ((document.getElementById('taskRdvTime') || {}).value || '').trim(),
+                rdvAddress: ((document.getElementById('taskRdvAddress') || {}).value || '').trim(),
+                rdvPhone: ((document.getElementById('taskRdvPhone') || {}).value || '').trim(),
+                rdvIntervention: ((document.getElementById('taskRdvIntervention') || {}).value || '').trim()
+            };
+        }
+
+        /** Remplit la modale tâche à partir d'un commentaire / entrée */
+        function fillStructuredTaskCommentInModal(src) {
+            const f = parseStructuredTaskComment(src);
+            const t = document.getElementById('taskRdvTime');
+            const a = document.getElementById('taskRdvAddress');
+            const p = document.getElementById('taskRdvPhone');
+            const i = document.getElementById('taskRdvIntervention');
+            if (t) t.value = f.rdvTime || '';
+            if (a) a.value = f.rdvAddress || '';
+            if (p) p.value = f.rdvPhone || '';
+            if (i) i.value = f.rdvIntervention || '';
+            const hidden = document.getElementById('taskModalDescription');
+            if (hidden) hidden.value = formatStructuredTaskComment(f);
+        }
+
+        function clearStructuredTaskCommentInModal() {
+            fillStructuredTaskCommentInModal({});
+        }
+
+        /** HTML d'affichage structuré pour la fenêtre détail agent */
+        function renderStructuredTaskCommentHtml(entryOrText) {
+            const f = parseStructuredTaskComment(entryOrText);
+            const has = f.rdvTime || f.rdvAddress || f.rdvPhone || f.rdvIntervention;
+            if (!has) {
+                return '<div class="ctd-desc" style="color:#aaa;font-style:italic;">Aucun détail RDV / intervention</div>';
+            }
+            function esc(s) {
+                return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            }
+            let html = '<div class="ctd-structured">';
+            if (f.rdvTime) {
+                html += '<div class="ctd-row"><span class="ctd-k">🕐 Heure RDV</span><span class="ctd-v">' + esc(f.rdvTime) + '</span></div>';
+            }
+            if (f.rdvAddress) {
+                html += '<div class="ctd-row"><span class="ctd-k">📍 Adresse</span><span class="ctd-v">' + esc(f.rdvAddress) + '</span></div>';
+            }
+            if (f.rdvPhone) {
+                html += '<div class="ctd-row"><span class="ctd-k">📞 Téléphone</span><span class="ctd-v">' + esc(f.rdvPhone) + '</span></div>';
+            }
+            if (f.rdvIntervention) {
+                html += '<div class="ctd-row"><span class="ctd-k">🔧 Intervention</span><span class="ctd-v">' + esc(f.rdvIntervention) + '</span></div>';
+            }
+            html += '</div>';
+            return html;
+        }
 
         /** Contexte de la fenêtre détail multi-tâches agent */
         let cellTasksDetailContext = null;
@@ -9480,11 +9668,13 @@ function purgeReplacementArchives() {
                     + String(code).replace(/</g, '&lt;') + '</span>'
                     + '<span class="ctd-label">' + String(tDef.label || code).replace(/</g, '&lt;') + '</span>'
                     + '</div>';
-                if (entry.description && String(entry.description).trim()) {
+                if (typeof renderStructuredTaskCommentHtml === 'function') {
+                    html += renderStructuredTaskCommentHtml(entry);
+                } else if (entry.description && String(entry.description).trim()) {
                     html += '<div class="ctd-desc">' + String(entry.description)
                         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
                 } else {
-                    html += '<div class="ctd-desc" style="color:#aaa;font-style:italic;">Aucun commentaire</div>';
+                    html += '<div class="ctd-desc" style="color:#aaa;font-style:italic;">Aucun détail RDV / intervention</div>';
                 }
                 html += '<div class="ctd-actions">';
                 if (tDef.isReplacement) {
@@ -9537,7 +9727,8 @@ function purgeReplacementArchives() {
             const list = getAgentDayTaskList(ctx.agentId, ctx.dateStr);
             if (index < 0 || index >= list.length) return;
             taskModalMultiMode = { editIndex: index };
-            openTaskModal(false, ctx.agentId, ctx.agentName, ctx.dateStr, list[index].code, list[index].description || '');
+            // Passer l'entrée complète (champs structurés) pour préremplir le formulaire
+            openTaskModal(false, ctx.agentId, ctx.agentName, ctx.dateStr, list[index].code, list[index]);
         }
 
         function removeAgentDayTaskFromDetail(index) {
@@ -9604,7 +9795,12 @@ function purgeReplacementArchives() {
             }
             document.getElementById('taskModalTargetInfo').innerHTML =
                 (isTeam ? 'Équipe' : 'Agent') + ' : <strong>' + (targetName || targetId) + '</strong> | Date : <strong>' + dateLabel + '</strong>';
-            document.getElementById('taskModalDescription').value = currentDesc || '';
+            if (typeof fillStructuredTaskCommentInModal === 'function') {
+                fillStructuredTaskCommentInModal(currentDesc || '');
+            } else {
+                const descEl = document.getElementById('taskModalDescription');
+                if (descEl) descEl.value = currentDesc || '';
+            }
 
             // Onglets Présences / Remplacement / Absences
             if (typeof switchTaskModalTab === 'function') {
@@ -10015,8 +10211,23 @@ function purgeReplacementArchives() {
             const dateStrs = (activeTaskCellSelection.dateStrs && activeTaskCellSelection.dateStrs.length)
                 ? activeTaskCellSelection.dateStrs
                 : [dateStr];
-            let descValue = document.getElementById('taskModalDescription').value.trim();
+            // Commentaire structuré (heure, adresse, téléphone, intervention)
+            const structuredComment = (typeof readStructuredTaskCommentFromModal === 'function')
+                ? readStructuredTaskCommentFromModal()
+                : {};
+            let descValue = (typeof formatStructuredTaskComment === 'function')
+                ? formatStructuredTaskComment(structuredComment)
+                : '';
+            if (!descValue) {
+                const descEl = document.getElementById('taskModalDescription');
+                descValue = descEl ? descEl.value.trim() : '';
+            }
+            // Synchroniser le champ caché
+            const hiddenDesc = document.getElementById('taskModalDescription');
+            if (hiddenDesc) hiddenDesc.value = descValue;
             const descKey = targetId + '_' + dateStr;
+            // Stocker le structuré pour append/update
+            activeTaskCellSelection._structuredComment = structuredComment;
 
             // Tâche de remplacement
             const selectedDef = TASKS[selectedTaskCodeInModal];
@@ -10094,14 +10305,24 @@ function purgeReplacementArchives() {
                     const existingList = (typeof getAgentDayTaskList === 'function')
                         ? getAgentDayTaskList(targetId, dStr)
                         : [];
+                    const structured = (activeTaskCellSelection && activeTaskCellSelection._structuredComment)
+                        ? activeTaskCellSelection._structuredComment
+                        : (typeof parseStructuredTaskComment === 'function' ? parseStructuredTaskComment(descValue) : {});
                     if (multiMode && typeof multiMode === 'object' && multiMode.editIndex != null && dateStrs.length === 1) {
-                        updateAgentDayTaskAt(targetId, dStr, multiMode.editIndex, codeToWrite, descValue || '');
+                        updateAgentDayTaskAt(targetId, dStr, multiMode.editIndex, codeToWrite, descValue || '', structured);
                     } else if (dateStrs.length === 1 && (multiMode === 'append' || existingList.length > 0)) {
                         // Ajoute une tâche supplémentaire le même jour (ne remplace pas les existantes)
-                        appendAgentDayTask(targetId, dStr, codeToWrite, descValue || '');
+                        appendAgentDayTask(targetId, dStr, codeToWrite, descValue || '', structured);
                     } else {
                         // Première tâche du jour (ou plage multi-jours)
-                        setAgentDayTaskList(targetId, dStr, [{ code: codeToWrite, description: descValue || '' }]);
+                        setAgentDayTaskList(targetId, dStr, [{
+                            code: codeToWrite,
+                            description: descValue || '',
+                            rdvTime: structured.rdvTime || '',
+                            rdvAddress: structured.rdvAddress || '',
+                            rdvPhone: structured.rdvPhone || '',
+                            rdvIntervention: structured.rdvIntervention || ''
+                        }]);
                     }
                     const afterCode = getCellTaskCode(false, targetId, dStr);
                     logCellModification(false, targetId, dStr, beforeCode, afterCode);
