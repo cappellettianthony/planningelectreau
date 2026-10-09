@@ -892,6 +892,73 @@
             padding: 6px 14px;
             text-align: center;
         }
+        .ctd-end-comment {
+            margin-top: 10px;
+            padding: 10px;
+            background: #eefaf3;
+            border: 1px solid #a9dfbf;
+            border-radius: 8px;
+        }
+        .ctd-end-comment label {
+            display: block;
+            font-weight: 700;
+            font-size: 0.78rem;
+            color: #1e8449;
+            margin-bottom: 6px;
+        }
+        .ctd-end-comment textarea {
+            width: 100%;
+            min-height: 56px;
+            padding: 8px;
+            border: 1px solid #bdc3c7;
+            border-radius: 6px;
+            font-size: 0.82rem;
+            resize: vertical;
+            box-sizing: border-box;
+            font-family: inherit;
+        }
+        .ctd-end-comment .ctd-end-actions {
+            margin-top: 6px;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .ctd-end-comment .ctd-end-readonly {
+            font-size: 0.82rem;
+            color: #333;
+            white-space: pre-wrap;
+            word-break: break-word;
+            background: #fff;
+            border: 1px solid #d5f5e3;
+            border-radius: 6px;
+            padding: 8px;
+            min-height: 28px;
+        }
+        .ctd-end-photo-wrap {
+            margin-top: 8px;
+        }
+        .ctd-end-photo-wrap img {
+            max-width: 100%;
+            max-height: 220px;
+            border-radius: 8px;
+            border: 1px solid #c8e6c9;
+            display: block;
+            object-fit: contain;
+            background: #fff;
+            cursor: pointer;
+        }
+        .ctd-end-photo-actions {
+            margin-top: 6px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+        }
+        .ctd-end-photo-actions input[type="file"] {
+            font-size: 0.75rem;
+            max-width: 100%;
+        }
         .task-cell:hover {
             transform: scale(1.03);
             box-shadow: 0 0 4px rgba(0,0,0,0.3);
@@ -4523,7 +4590,7 @@ if (resetAckBtn) {
             if (agentTaskLists && Array.isArray(agentTaskLists[key]) && agentTaskLists[key].length) {
                 return agentTaskLists[key].map(function(e) {
                     if (!e) return null;
-                    if (typeof e === 'string') return { code: e, description: '', rdvTime: '', rdvAddress: '', rdvPhone: '', rdvIntervention: '' };
+                    if (typeof e === 'string') return { code: e, description: '', rdvTime: '', rdvAddress: '', rdvPhone: '', rdvIntervention: '', endComment: '', endPhoto: '' };
                     const parsed = parseStructuredTaskComment(e);
                     return {
                         code: String(e.code || e.taskCode || 'R'),
@@ -4531,7 +4598,9 @@ if (resetAckBtn) {
                         rdvTime: String(e.rdvTime != null ? e.rdvTime : parsed.rdvTime || ''),
                         rdvAddress: String(e.rdvAddress != null ? e.rdvAddress : parsed.rdvAddress || ''),
                         rdvPhone: String(e.rdvPhone != null ? e.rdvPhone : parsed.rdvPhone || ''),
-                        rdvIntervention: String(e.rdvIntervention != null ? e.rdvIntervention : parsed.rdvIntervention || '')
+                        rdvIntervention: String(e.rdvIntervention != null ? e.rdvIntervention : parsed.rdvIntervention || ''),
+                        endComment: String(e.endComment != null ? e.endComment : (e.finIntervention || e.endOfIntervention || '')),
+                        endPhoto: String(e.endPhoto || '')
                     };
                 }).filter(function(e) { return e && e.code; });
             }
@@ -4579,7 +4648,9 @@ if (resetAckBtn) {
                     rdvTime: structured.rdvTime,
                     rdvAddress: structured.rdvAddress,
                     rdvPhone: structured.rdvPhone,
-                    rdvIntervention: structured.rdvIntervention
+                    rdvIntervention: structured.rdvIntervention,
+                    endComment: String(e.endComment != null ? e.endComment : (e.finIntervention || '')).trim(),
+                    endPhoto: String(e.endPhoto || '').trim()
                 };
             });
             if (!agentTaskLists) agentTaskLists = {};
@@ -4613,7 +4684,8 @@ if (resetAckBtn) {
                 rdvTime: s.rdvTime || '',
                 rdvAddress: s.rdvAddress || '',
                 rdvPhone: s.rdvPhone || '',
-                rdvIntervention: s.rdvIntervention || ''
+                rdvIntervention: s.rdvIntervention || '',
+                endComment: (structured && structured.endComment) ? String(structured.endComment) : ''
             });
             setAgentDayTaskList(agentId, dateStr, list);
         }
@@ -4628,13 +4700,21 @@ if (resetAckBtn) {
         function updateAgentDayTaskAt(agentId, dateStr, index, code, description, structured) {
             const list = getAgentDayTaskList(agentId, dateStr);
             const s = structured || parseStructuredTaskComment(description || '');
+            const prevEnd = (index >= 0 && index < list.length) ? (list[index].endComment || '') : '';
             const entry = {
                 code: code,
                 description: description || formatStructuredTaskComment(s),
                 rdvTime: s.rdvTime || '',
                 rdvAddress: s.rdvAddress || '',
                 rdvPhone: s.rdvPhone || '',
-                rdvIntervention: s.rdvIntervention || ''
+                rdvIntervention: s.rdvIntervention || '',
+                // Conserver le commentaire de fin d'intervention existant
+                endComment: (structured && structured.endComment != null)
+                    ? String(structured.endComment)
+                    : prevEnd,
+                endPhoto: (structured && structured.endPhoto != null)
+                    ? String(structured.endPhoto)
+                    : ((index >= 0 && index < list.length) ? (list[index].endPhoto || '') : '')
             };
             if (index < 0 || index >= list.length) {
                 appendAgentDayTask(agentId, dateStr, code, entry.description, entry);
@@ -9720,6 +9800,32 @@ function purgeReplacementArchives() {
                 addBtn.style.display = canEdit ? 'inline-block' : 'none';
                 addBtn.disabled = !canEdit;
             }
+            // Bouton bulk récupération photos (RE/Admin)
+            let retrieveAllBtn = document.getElementById('cellTasksRetrievePhotosBtn');
+            if (!retrieveAllBtn && canEdit) {
+                const actions = document.querySelector('#cellTasksDetailModal .modal-actions');
+                if (actions && addBtn) {
+                    retrieveAllBtn = document.createElement('button');
+                    retrieveAllBtn.type = 'button';
+                    retrieveAllBtn.id = 'cellTasksRetrievePhotosBtn';
+                    retrieveAllBtn.className = 'btn';
+                    retrieveAllBtn.style.cssText = 'background:#8e44ad;color:#fff;';
+                    retrieveAllBtn.textContent = '📥 Récupérer toutes les photos';
+                    retrieveAllBtn.onclick = function() { retrieveAndDeleteAllEndPhotosForDay(); };
+                    actions.insertBefore(retrieveAllBtn, addBtn);
+                }
+            }
+            if (retrieveAllBtn) {
+                const dayList = (ctx && typeof getAgentDayTaskList === 'function')
+                    ? getAgentDayTaskList(ctx.agentId, ctx.dateStr) : [];
+                const photoCount = dayList.filter(function(e) {
+                    return e && e.endPhoto && String(e.endPhoto).indexOf('data:image') === 0;
+                }).length;
+                retrieveAllBtn.style.display = (canEdit && photoCount > 0) ? 'inline-block' : 'none';
+                if (photoCount > 0) {
+                    retrieveAllBtn.textContent = '📥 Récupérer ' + photoCount + ' photo' + (photoCount > 1 ? 's' : '');
+                }
+            }
 
             // Bandeau jour : vert si aujourd'hui, orange sinon
             const modal = document.getElementById('cellTasksDetailModal');
@@ -9818,23 +9924,77 @@ function purgeReplacementArchives() {
                 } else {
                     html += '<div class="ctd-desc" style="color:#aaa;font-style:italic;">Aucun détail RDV / intervention</div>';
                 }
+                // Commentaire de fin d'intervention (agent peut saisir / modifier)
+                const endVal = String(entry.endComment || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                const canEnd = (typeof canEditTaskEndComment === 'function')
+                    ? canEditTaskEndComment(ctx.agentId)
+                    : true;
+                html += '<div class="ctd-end-comment">';
+                html += '<label>📝 Commentaire de fin d\'intervention</label>';
+                const hasPhoto = !!(entry.endPhoto && String(entry.endPhoto).indexOf('data:image') === 0);
+                const canRetrievePhoto = !isReadOnly; // RE / Admin uniquement
+                if (canEnd) {
+                    html += '<textarea id="endComment_' + idx + '" placeholder="Saisir le compte-rendu / fin d\'intervention…">'
+                        + endVal + '</textarea>';
+                    html += '<div class="ctd-end-photo-wrap" id="endPhotoWrap_' + idx + '">';
+                    if (hasPhoto) {
+                        html += '<img id="endPhotoPreview_' + idx + '" src="' + String(entry.endPhoto).replace(/"/g, '&quot;') + '" alt="Photo fin d\'intervention" title="Cliquer pour agrandir" onclick="event.stopPropagation(); openEndPhotoLightbox(this.src)">';
+                    } else {
+                        html += '<img id="endPhotoPreview_' + idx + '" src="" alt="" style="display:none;">';
+                    }
+                    html += '<div class="ctd-end-photo-actions">'
+                        + '<input type="file" id="endPhotoInput_' + idx + '" accept="image/*" capture="environment" '
+                        + 'onchange="event.stopPropagation(); onEndPhotoFileSelected(' + idx + ', this)">'
+                        + '<button type="button" class="btn btn-secondary" style="font-size:0.75rem;padding:3px 8px;" '
+                        + 'onclick="event.stopPropagation(); clearEndPhotoPreview(' + idx + ')">🗑️ Retirer la photo</button>';
+                    if (hasPhoto && canRetrievePhoto) {
+                        html += '<button type="button" class="btn" style="font-size:0.75rem;padding:3px 8px;background:#8e44ad;color:#fff;" '
+                            + 'onclick="event.stopPropagation(); retrieveAndDeleteEndPhoto(' + idx + ')" '
+                            + 'title="Télécharge la photo puis la supprime de la base de données">'
+                            + '📥 Récupérer &amp; supprimer</button>';
+                    }
+                    html += '</div></div>';
+                    html += '<div class="ctd-end-actions">'
+                        + '<button type="button" class="btn btn-success" style="font-size:0.78rem;padding:4px 10px;" '
+                        + 'onclick="event.stopPropagation(); saveAgentDayTaskEndComment(' + idx + ')">💾 Enregistrer</button>'
+                        + '<span id="endCommentStatus_' + idx + '" style="font-size:0.75rem;color:#1e8449;"></span>'
+                        + '</div>';
+                } else {
+                    html += endVal
+                        ? '<div class="ctd-end-readonly">' + endVal + '</div>'
+                        : '<div class="ctd-end-readonly" style="color:#888;font-style:italic;">Aucun commentaire de fin</div>';
+                    if (hasPhoto) {
+                        html += '<div class="ctd-end-photo-wrap"><img src="'
+                            + String(entry.endPhoto).replace(/"/g, '&quot;')
+                            + '" alt="Photo fin d\'intervention" title="Cliquer pour agrandir" onclick="event.stopPropagation(); openEndPhotoLightbox(this.src)">';
+                        if (canRetrievePhoto) {
+                            html += '<div class="ctd-end-photo-actions">'
+                                + '<button type="button" class="btn" style="font-size:0.75rem;padding:3px 8px;background:#8e44ad;color:#fff;" '
+                                + 'onclick="event.stopPropagation(); retrieveAndDeleteEndPhoto(' + idx + ')">'
+                                + '📥 Récupérer &amp; supprimer</button></div>';
+                        }
+                        html += '</div>';
+                    }
+                }
+                html += '</div>';
                 html += '<div class="ctd-actions">';
                 if (canEdit) {
                     html += '<button type="button" class="btn" style="font-size:0.78rem;padding:4px 8px;background:#2980b9;" '
-                        + 'onclick="editAgentDayTaskFromDetail(' + idx + ')">✏️ Modifier</button>';
+                        + 'onclick="event.stopPropagation(); editAgentDayTaskFromDetail(' + idx + ')">✏️ Modifier</button>';
                     html += '<button type="button" class="btn btn-danger" style="font-size:0.78rem;padding:4px 8px;" '
-                        + 'onclick="removeAgentDayTaskFromDetail(' + idx + ')">🗑️ Supprimer</button>';
+                        + 'onclick="event.stopPropagation(); removeAgentDayTaskFromDetail(' + idx + ')">🗑️ Supprimer</button>';
                 }
                 html += '</div>';
                 item.innerHTML = html;
-                // Clic sur la carte entière (Admin/RE) → modifier cette tâche
+                // Clic carte (Admin/RE) → modifier, sauf interactions sur textarea/boutons
                 if (canEdit) {
                     item.style.cursor = 'pointer';
-                    item.title = 'Cliquer pour modifier cette tâche';
                     (function(taskIndex) {
                         item.addEventListener('click', function(ev) {
-                            // Ne pas double-déclencher si clic sur un bouton d'action
-                            if (ev.target && (ev.target.tagName === 'BUTTON' || (ev.target.closest && ev.target.closest('button')))) {
+                            const t = ev.target;
+                            if (!t) return;
+                            if (t.tagName === 'BUTTON' || t.tagName === 'TEXTAREA' || t.tagName === 'INPUT'
+                                || (t.closest && (t.closest('button') || t.closest('textarea') || t.closest('input') || t.closest('.ctd-end-comment')))) {
                                 return;
                             }
                             editAgentDayTaskFromDetail(taskIndex);
@@ -9843,6 +10003,253 @@ function purgeReplacementArchives() {
                 }
                 listEl.appendChild(item);
             });
+        }
+
+
+        /**
+         * L'agent peut commenter la fin d'intervention sur ses propres tâches.
+         * RE / Admin : toutes les tâches.
+         */
+        function canEditTaskEndComment(agentId) {
+            if (!isReadOnly) return true;
+            if (!agentId) return false;
+            const myIds = (typeof getMyAgentIds === 'function') ? getMyAgentIds() : [];
+            return myIds.indexOf(agentId) !== -1;
+        }
+
+        /** Photo en attente (avant enregistrement) par index de tâche */
+        let pendingEndPhotos = {};
+
+        /**
+         * Compresse une image (max ~900px, JPEG) pour limiter la taille Firebase.
+         * @returns {Promise<string>} data URL
+         */
+        function compressImageFileToDataUrl(file, maxSide, quality) {
+            maxSide = maxSide || 900;
+            quality = quality || 0.65;
+            return new Promise(function(resolve, reject) {
+                if (!file || !file.type || file.type.indexOf('image/') !== 0) {
+                    reject(new Error('Fichier image requis'));
+                    return;
+                }
+                const reader = new FileReader();
+                reader.onload = function() {
+                    const img = new Image();
+                    img.onload = function() {
+                        let w = img.width;
+                        let h = img.height;
+                        if (w > maxSide || h > maxSide) {
+                            if (w >= h) {
+                                h = Math.round(h * (maxSide / w));
+                                w = maxSide;
+                            } else {
+                                w = Math.round(w * (maxSide / h));
+                                h = maxSide;
+                            }
+                        }
+                        const canvas = document.createElement('canvas');
+                        canvas.width = w;
+                        canvas.height = h;
+                        const ctx2d = canvas.getContext('2d');
+                        ctx2d.drawImage(img, 0, 0, w, h);
+                        let dataUrl = canvas.toDataURL('image/jpeg', quality);
+                        // Si trop gros (> ~450 Ko), recompresser
+                        if (dataUrl.length > 600000) {
+                            dataUrl = canvas.toDataURL('image/jpeg', 0.45);
+                        }
+                        if (dataUrl.length > 900000) {
+                            dataUrl = canvas.toDataURL('image/jpeg', 0.3);
+                        }
+                        resolve(dataUrl);
+                    };
+                    img.onerror = function() { reject(new Error('Lecture image impossible')); };
+                    img.src = reader.result;
+                };
+                reader.onerror = function() { reject(new Error('Lecture fichier impossible')); };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function onEndPhotoFileSelected(index, inputEl) {
+            const file = inputEl && inputEl.files && inputEl.files[0];
+            if (!file) return;
+            const status = document.getElementById('endCommentStatus_' + index);
+            if (status) status.textContent = 'Compression photo…';
+            compressImageFileToDataUrl(file, 900, 0.65).then(function(dataUrl) {
+                pendingEndPhotos[index] = dataUrl;
+                const prev = document.getElementById('endPhotoPreview_' + index);
+                if (prev) {
+                    prev.src = dataUrl;
+                    prev.style.display = 'block';
+                }
+                if (status) status.textContent = 'Photo prête — cliquez Enregistrer';
+            }).catch(function(err) {
+                alert('Impossible de charger la photo : ' + (err && err.message ? err.message : err));
+                if (status) status.textContent = '';
+                if (inputEl) inputEl.value = '';
+            });
+        }
+
+        function clearEndPhotoPreview(index) {
+            pendingEndPhotos[index] = '';
+            const prev = document.getElementById('endPhotoPreview_' + index);
+            if (prev) {
+                prev.src = '';
+                prev.style.display = 'none';
+            }
+            const input = document.getElementById('endPhotoInput_' + index);
+            if (input) input.value = '';
+            const status = document.getElementById('endCommentStatus_' + index);
+            if (status) status.textContent = 'Photo retirée — cliquez Enregistrer pour valider';
+        }
+
+        function openEndPhotoLightbox(src) {
+            if (!src) return;
+            const overlay = document.createElement('div');
+            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:20000;display:flex;align-items:center;justify-content:center;padding:16px;cursor:zoom-out;';
+            const img = document.createElement('img');
+            img.src = src;
+            img.style.cssText = 'max-width:96vw;max-height:92vh;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,0.5);';
+            overlay.appendChild(img);
+            overlay.onclick = function() { document.body.removeChild(overlay); };
+            document.body.appendChild(overlay);
+        }
+
+        /**
+         * RE / Admin : télécharge la photo de fin d'intervention puis la supprime de la base.
+         */
+        function retrieveAndDeleteEndPhoto(index) {
+            if (isReadOnly) {
+                alert('Réservé aux RE et Administrateurs.');
+                return;
+            }
+            const ctx = cellTasksDetailContext;
+            if (!ctx || !ctx.agentId || !ctx.dateStr) return;
+            const list = getAgentDayTaskList(ctx.agentId, ctx.dateStr);
+            if (index < 0 || index >= list.length) return;
+            const photo = list[index].endPhoto;
+            if (!photo || String(photo).indexOf('data:image') !== 0) {
+                alert('Aucune photo à récupérer pour cette tâche.');
+                return;
+            }
+            if (!confirm(
+                'Récupérer cette photo ?\n\n' +
+                '1. La photo sera téléchargée sur cet appareil\n' +
+                '2. Elle sera ensuite supprimée de la base de données\n\n' +
+                'Le commentaire texte est conservé.'
+            )) return;
+
+            // Nom de fichier lisible
+            const code = list[index].code || 'tache';
+            const safeAgent = String(ctx.agentName || ctx.agentId).replace(/[^a-zA-Z0-9_-]+/g, '_');
+            const fileName = 'photo_' + safeAgent + '_' + ctx.dateStr + '_' + code + '_' + (index + 1) + '.jpg';
+
+            try {
+                const a = document.createElement('a');
+                a.href = photo;
+                a.download = fileName;
+                a.style.display = 'none';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            } catch (e) {
+                alert('Échec du téléchargement : ' + (e && e.message ? e.message : e));
+                return;
+            }
+
+            // Suppression de la base après téléchargement
+            list[index].endPhoto = '';
+            setAgentDayTaskList(ctx.agentId, ctx.dateStr, list);
+            if (pendingEndPhotos) delete pendingEndPhotos[index];
+            if (typeof renderAll === 'function') renderAll(true);
+            if (typeof renderCellTasksDetailList === 'function') renderCellTasksDetailList();
+            alert('Photo téléchargée et supprimée de la base de données.');
+        }
+
+        /**
+         * RE / Admin : récupère toutes les photos du jour affiché puis les supprime.
+         */
+        function retrieveAndDeleteAllEndPhotosForDay() {
+            if (isReadOnly) {
+                alert('Réservé aux RE et Administrateurs.');
+                return;
+            }
+            const ctx = cellTasksDetailContext;
+            if (!ctx || !ctx.agentId || !ctx.dateStr) return;
+            const list = getAgentDayTaskList(ctx.agentId, ctx.dateStr);
+            const withPhoto = [];
+            list.forEach(function(e, i) {
+                if (e && e.endPhoto && String(e.endPhoto).indexOf('data:image') === 0) {
+                    withPhoto.push(i);
+                }
+            });
+            if (!withPhoto.length) {
+                alert('Aucune photo à récupérer pour ce jour.');
+                return;
+            }
+            if (!confirm(
+                'Récupérer ' + withPhoto.length + ' photo(s) de ce jour ?\n\n' +
+                'Elles seront téléchargées puis supprimées de la base.\n' +
+                'Les commentaires texte sont conservés.'
+            )) return;
+
+            const safeAgent = String(ctx.agentName || ctx.agentId).replace(/[^a-zA-Z0-9_-]+/g, '_');
+            withPhoto.forEach(function(i, n) {
+                const code = list[i].code || 'tache';
+                const fileName = 'photo_' + safeAgent + '_' + ctx.dateStr + '_' + code + '_' + (i + 1) + '.jpg';
+                try {
+                    const a = document.createElement('a');
+                    a.href = list[i].endPhoto;
+                    a.download = fileName;
+                    a.style.display = 'none';
+                    document.body.appendChild(a);
+                    // Délai léger pour enchaîner plusieurs téléchargements
+                    setTimeout(function() {
+                        a.click();
+                        document.body.removeChild(a);
+                    }, n * 350);
+                } catch (e) {}
+                list[i].endPhoto = '';
+            });
+            setAgentDayTaskList(ctx.agentId, ctx.dateStr, list);
+            pendingEndPhotos = {};
+            if (typeof renderAll === 'function') renderAll(true);
+            setTimeout(function() {
+                if (typeof renderCellTasksDetailList === 'function') renderCellTasksDetailList();
+                alert(withPhoto.length + ' photo(s) téléchargée(s) et supprimée(s) de la base.');
+            }, withPhoto.length * 350 + 200);
+        }
+
+
+        /**
+         * Enregistre le commentaire + photo de fin d'intervention d'une tâche.
+         */
+        function saveAgentDayTaskEndComment(index) {
+            const ctx = cellTasksDetailContext;
+            if (!ctx || !ctx.agentId || !ctx.dateStr) return;
+            if (!canEditTaskEndComment(ctx.agentId)) {
+                alert('Vous ne pouvez pas modifier ce commentaire.');
+                return;
+            }
+            const ta = document.getElementById('endComment_' + index);
+            const list = getAgentDayTaskList(ctx.agentId, ctx.dateStr);
+            if (index < 0 || index >= list.length) return;
+            list[index].endComment = ta ? String(ta.value || '').trim() : (list[index].endComment || '');
+            // Photo : pending (nouvelle / retirée) sinon conserver l'existante
+            if (Object.prototype.hasOwnProperty.call(pendingEndPhotos, index)) {
+                list[index].endPhoto = pendingEndPhotos[index] || '';
+            } else {
+                list[index].endPhoto = list[index].endPhoto || '';
+            }
+            setAgentDayTaskList(ctx.agentId, ctx.dateStr, list);
+            delete pendingEndPhotos[index];
+            if (typeof renderAll === 'function') renderAll(true);
+            const status = document.getElementById('endCommentStatus_' + index);
+            if (status) {
+                status.textContent = 'Enregistré ✓';
+                setTimeout(function() { if (status) status.textContent = ''; }, 2500);
+            }
+            if (typeof renderCellTasksDetailList === 'function') renderCellTasksDetailList();
         }
 
         function openAddTaskFromCellDetail() {
