@@ -1344,33 +1344,14 @@
         <ul id="alertList"></ul>
     </div>
 
-    <details class="dashboard-wrapper" id="dashboardWrapper" ontoggle="onDashboardToggle()">
-        <summary>
-            <span>📊 Surveillance des effectifs & compétences <span class="dashboard-month-label" id="dashboardMonthLabel"></span></span>
-            <span style="font-size: 0.75rem; color: #7f8c8d; font-weight: normal;">Cliquez pour afficher / masquer</span>
-        </summary>
-        <div class="dashboard" id="dashboard"></div>
-    </details>
-
     <div class="planning-layout">
         <div class="rpl-side-column">
-            <button type="button" class="rpl-volunteer-btn" id="volunteerOpenBtn" onclick="openVolunteerModal()">
-                ✋ Se porter volontaire
-            </button>
             <button type="button" class="absence-request-btn" id="absenceRequestOpenBtn" onclick="openAbsenceRequestModal()">
                 🏖️ Demande d'absence
             </button>
             <button type="button" class="absence-process-btn" id="absenceProcessOpenBtn" onclick="openAbsenceProcessModal()" style="display:none;">
                 📥 Traitement des absences <span class="abs-pending-count" id="absencePendingCount" style="display:none;">0</span>
             </button>
-            <aside class="rpl-side-panel" id="rplSidePanel">
-                <div class="rpl-side-panel-header">
-                    📋 Remplacements <span class="count" id="rplSidePanelCount">(0)</span>
-                </div>
-                <div class="rpl-side-panel-list" id="rplSidePanelList">
-                    <div class="rpl-side-empty">Aucune tâche de remplacement</div>
-                </div>
-            </aside>
         </div>
 
         <div class="table-container">
@@ -3872,6 +3853,7 @@ if (resetAckBtn) {
          * Interaction : clic / double-clic ouvre la fiche RPL (comme sur le planning).
          */
         function updateRplSidePanel() {
+            // Panneau latéral remplacements supprimé de l'interface
             const listEl = document.getElementById('rplSidePanelList');
             const countEl = document.getElementById('rplSidePanelCount');
             if (!listEl) return;
@@ -4382,16 +4364,8 @@ if (resetAckBtn) {
                 const displayDateFull = formatDateDisplay(d);
                 const dateStr = formatDate(d);
 
-                let badgeHtml = '';
-                const dayStatus = dailyAlertColors[dateStr];
-                if (dayStatus) {
-                    let colorClass = 'bg-green';
-                    let label = 'OK';
-                    if (dayStatus === 'RED') { colorClass = 'bg-red'; label = isYear ? '!' : 'Alerte'; }
-                    else if (dayStatus === 'ORANGE') { colorClass = 'bg-orange'; label = isYear ? '~' : 'Attention'; }
-                    else { label = isYear ? '✓' : 'OK'; }
-                    badgeHtml = `<span class="header-date-badge ${colorClass}">${label}</span>`;
-                }
+                // Badges de surveillance sous les dates : désactivés
+                const badgeHtml = '';
 
                 th.setAttribute('data-date', dateStr);
                 if (d.getDay() === 0) th.classList.add('sunday-col');
@@ -4839,7 +4813,9 @@ if (resetAckBtn) {
 
         // Bandeau de surveillance : toujours un mois (dashboardStartDate)
         function updateDashboard() {
+            // Bandeau surveillance retiré
             const dashboard = document.getElementById('dashboard');
+            if (!dashboard) return;
             dashboard.innerHTML = '';
             const dates = getDashboardDates();
             updateDashboardMonthLabel();
@@ -8778,6 +8754,11 @@ function resetVolunteerStats() {
 }
 
 function openVolunteerModal() {
+    // Fonctionnalité « Se porter volontaire » retirée de l'interface
+    if (!document.getElementById('volunteerOpenBtn')) {
+        return;
+    }
+
     if (!currentUser || !currentUser.email) {
         alert('Connexion requise pour se porter volontaire.');
         return;
@@ -9478,7 +9459,10 @@ function purgeReplacementArchives() {
                     + '<span style="font-style:normal;color:#555;">Roulement d\'équipe : '
                     + '<span class="ctd-code" style="background:' + (tDef.color || '#ccc') + ';color:' + (tDef.text || '#000') + ';">'
                     + String(inherited).replace(/</g, '&lt;') + '</span> '
-                    + (tDef.label || '') + '</span>';
+                    + (tDef.label || '') + '</span>'
+                    + (canEdit
+                        ? '<br><br><button type="button" class="btn btn-success" onclick="openAddTaskFromCellDetail()">+ Ajouter une première tâche</button>'
+                        : '');
                 listEl.appendChild(empty);
                 return;
             }
@@ -9524,14 +9508,23 @@ function purgeReplacementArchives() {
             const ctx = cellTasksDetailContext;
             if (!ctx) return;
             if (typeof canModifyPlanning === 'function' ? !canModifyPlanning() : isReadOnly) {
-                alert('Édition du planning verrouillée ou lecture seule.');
+                alert('Édition du planning verrouillée (bouton ✋) ou lecture seule.\nDéverrouillez l\'édition pour ajouter des tâches.');
                 return;
             }
+            // Toujours en mode ajout (plusieurs tâches le même jour)
             taskModalMultiMode = 'append';
             const list = getAgentDayTaskList(ctx.agentId, ctx.dateStr);
             const primary = list.length ? list[0].code : 'R';
             openTaskModal(false, ctx.agentId, ctx.agentName, ctx.dateStr, primary, '');
-            // Garder le détail en arrière-plan (z-index taskModal plus haut par défaut)
+            // Indiquer clairement le mode ajout
+            try {
+                const h2 = document.querySelector('#taskModal h2');
+                if (h2) {
+                    h2.textContent = list.length
+                        ? 'Ajouter une tâche (en plus)'
+                        : 'Affecter une tâche';
+                }
+            } catch (e) {}
         }
 
         function editAgentDayTaskFromDetail(index) {
@@ -9630,6 +9623,10 @@ function purgeReplacementArchives() {
             activeTaskCellSelection = null;
             selectedTaskCodeInModal = null;
             taskModalMultiMode = null;
+            try {
+                const h2 = document.querySelector('#taskModal h2');
+                if (h2) h2.textContent = 'Affecter une Tâche';
+            } catch (e) {}
             if (typeof clearMultiSelectHighlights === 'function') clearMultiSelectHighlights();
         }
 
@@ -10094,12 +10091,16 @@ function purgeReplacementArchives() {
                     if (dateStrs.length > 1) {
                         codeToWrite = applyWeekendFormationRule(dStr, codeToWrite, selectedTaskCodeInModal, targetId);
                     }
-                    if (multiMode === 'append' && dateStrs.length === 1) {
-                        appendAgentDayTask(targetId, dStr, codeToWrite, descValue || '');
-                    } else if (multiMode && typeof multiMode === 'object' && multiMode.editIndex != null && dateStrs.length === 1) {
+                    const existingList = (typeof getAgentDayTaskList === 'function')
+                        ? getAgentDayTaskList(targetId, dStr)
+                        : [];
+                    if (multiMode && typeof multiMode === 'object' && multiMode.editIndex != null && dateStrs.length === 1) {
                         updateAgentDayTaskAt(targetId, dStr, multiMode.editIndex, codeToWrite, descValue || '');
+                    } else if (dateStrs.length === 1 && (multiMode === 'append' || existingList.length > 0)) {
+                        // Ajoute une tâche supplémentaire le même jour (ne remplace pas les existantes)
+                        appendAgentDayTask(targetId, dStr, codeToWrite, descValue || '');
                     } else {
-                        // Remplace toute la liste du jour par cette seule tâche
+                        // Première tâche du jour (ou plage multi-jours)
                         setAgentDayTaskList(targetId, dStr, [{ code: codeToWrite, description: descValue || '' }]);
                     }
                     const afterCode = getCellTaskCode(false, targetId, dStr);
@@ -10366,10 +10367,13 @@ function purgeReplacementArchives() {
                     }
                     // Multi-tâches : append / edit / replace
                     const rplMultiMode = pendingRplTaskAssignment && pendingRplTaskAssignment._multiMode;
-                    if (rplMultiMode === 'append' && !isMulti) {
-                        appendAgentDayTask(targetId, dStr, codeToWrite, dayDesc || '');
-                    } else if (rplMultiMode && typeof rplMultiMode === 'object' && rplMultiMode.editIndex != null && !isMulti) {
+                    const existingRplList = (typeof getAgentDayTaskList === 'function')
+                        ? getAgentDayTaskList(targetId, dStr)
+                        : [];
+                    if (rplMultiMode && typeof rplMultiMode === 'object' && rplMultiMode.editIndex != null && !isMulti) {
                         updateAgentDayTaskAt(targetId, dStr, rplMultiMode.editIndex, codeToWrite, dayDesc || '');
+                    } else if (!isMulti && (rplMultiMode === 'append' || existingRplList.length > 0)) {
+                        appendAgentDayTask(targetId, dStr, codeToWrite, dayDesc || '');
                     } else {
                         setAgentDayTaskList(targetId, dStr, [{ code: codeToWrite, description: dayDesc || '' }]);
                     }
