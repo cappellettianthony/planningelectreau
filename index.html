@@ -1364,7 +1364,6 @@
             <input type="file" id="importFile" style="display:none" accept=".json" onchange="importData(event)">
             <button class="btn btn-secondary" onclick="openModificationLogModal()" id="modLogBtn" style="display:none;">📝 Suivi des modifications</button>
             <button class="btn" onclick="openSettings()" id="settingsBtn">⚙️ Paramètres</button>
-            <button type="button" class="btn" id="planningEditToggleBtn" onclick="togglePlanningEditMode()" title="Édition du planning verrouillée — cliquer pour déverrouiller" style="display:none;">✋</button>
             <button class="btn btn-logout" onclick="logout()" id="logoutBtn" style="display: none;">Déconnexion</button>
         </div>
     </header>
@@ -3104,53 +3103,32 @@ function markAgentSeenOnSheet(sheetKey, agentId) {
             });
         })();
 
-        /** Édition des cellules du planning autorisée ? (RE/Admin + main activée) */
+        /**
+         * Édition du planning autorisée pour Admin et RE (plus de verrou « main »).
+         * Les agents en lecture seule ne peuvent pas modifier.
+         */
         function canModifyPlanning() {
-            return !isReadOnly && !!planningEditUnlocked;
+            return !isReadOnly;
         }
 
-        /**
-         * Admin / RE peuvent modifier les tâches d'un agent
-         * même sans avoir activé le bouton « main » d'édition du planning.
-         * Les agents en lecture seule ne peuvent pas.
-         */
+        /** Alias : Admin / RE peuvent gérer les tâches agent. */
         function canEditAgentDayTasks() {
             return !isReadOnly;
         }
 
-        function togglePlanningEditMode() {
-            if (isReadOnly) return; // lecture seule pure : pas d'accès
-            planningEditUnlocked = !planningEditUnlocked;
-            updatePlanningEditToggleBtn();
-            // Re-render pour activer/désactiver les cellules
-            if (typeof renderAll === 'function') renderAll(false);
-        }
+        /** Ancien bouton main — désactivé (no-op). */
+        function togglePlanningEditMode() { /* supprimé */ }
 
         function updatePlanningEditToggleBtn() {
             const btn = document.getElementById('planningEditToggleBtn');
-            if (!btn) return;
-            const canUse = !isReadOnly; // RE ou Admin
-            btn.style.display = canUse ? 'inline-block' : 'none';
-            btn.disabled = !canUse;
-            if (!canUse) {
-                planningEditUnlocked = false;
-            }
-            btn.classList.toggle('active', !!planningEditUnlocked);
-            if (planningEditUnlocked) {
-                btn.title = 'Édition du planning activée — cliquer pour verrouiller';
-                btn.setAttribute('aria-pressed', 'true');
-            } else {
-                btn.title = 'Édition du planning verrouillée — cliquer pour déverrouiller (RE / Admin)';
-                btn.setAttribute('aria-pressed', 'false');
-            }
+            if (btn) btn.style.display = 'none';
             const hdr = document.querySelector('header');
-            if (hdr) {
-                hdr.classList.toggle('planning-edit-active', !!planningEditUnlocked && canUse);
-            }
+            if (hdr) hdr.classList.remove('planning-edit-active');
         }
 
         // sert à adapter l'interface utilisateur en fonction des droits de l'utilisateur : Administrateur (isAdmin) Lecture seule (isReadOnly) Elle active ou désactive certains boutons et modifie leur apparence.
         function applyReadOnlyMode() {
+            if (typeof updatePlanningEditToggleBtn === 'function') updatePlanningEditToggleBtn();
             const settingsBtn = document.getElementById('settingsBtn');
             const importBtn = document.getElementById('importBtn');
             const modLogBtn = document.getElementById('modLogBtn');
@@ -5423,21 +5401,9 @@ function bindCellEvents(cellDiv, isTeam, targetId, targetName, dateStr, currentT
         } else {
             clickTimer = setTimeout(() => {
                 clickTimer = null;
-                // SIMPLE CLIC agent :
-                // - Mode édition (main) → ajouter une NOUVELLE tâche (commentaires à zéro)
-                // - Sinon → détail des tâches du jour
-                if (!isTeam) {
-                    const editOn = (typeof canModifyPlanning === 'function') ? canModifyPlanning() : false;
-                    if (editOn && typeof openAddTaskFromCellDetail === 'function') {
-                        cellTasksDetailContext = {
-                            agentId: targetId,
-                            agentName: targetName || targetId,
-                            dateStr: dateStr
-                        };
-                        openAddTaskFromCellDetail();
-                    } else if (typeof openCellTasksDetailModal === 'function') {
-                        openCellTasksDetailModal(targetId, targetName, dateStr);
-                    }
+                // SIMPLE CLIC agent → détail des tâches (+ bouton Ajouter pour RE/Admin)
+                if (!isTeam && typeof openCellTasksDetailModal === 'function') {
+                    openCellTasksDetailModal(targetId, targetName, dateStr);
                 } else if (typeof canModifyPlanning === 'function' ? canModifyPlanning() : !isReadOnly) {
                     openTaskModal(isTeam, targetId, targetName, dateStr, currentTaskCode, currentDesc);
                 }
@@ -9888,25 +9854,34 @@ function purgeReplacementArchives() {
 
         function openAddTaskFromCellDetail() {
             const ctx = cellTasksDetailContext;
-            if (!ctx) return;
-            const canEdit = (typeof canEditAgentDayTasks === 'function')
-                ? canEditAgentDayTasks()
-                : (typeof canModifyPlanning === 'function' ? canModifyPlanning() : !isReadOnly);
-            if (!canEdit) {
+            if (!ctx || !ctx.agentId || !ctx.dateStr) {
+                alert('Contexte de case manquant. Rouvrez la fenêtre des tâches du jour.');
+                return;
+            }
+            // RE / Admin uniquement
+            if (isReadOnly) {
                 alert('Lecture seule : vous ne pouvez pas ajouter de tâche.');
                 return;
             }
-            // Toujours en mode ajout (plusieurs tâches le même jour)
+            // Mode ajout d'une tâche supplémentaire
             taskModalMultiMode = 'append';
-            const list = getAgentDayTaskList(ctx.agentId, ctx.dateStr);
+            const list = (typeof getAgentDayTaskList === 'function')
+                ? getAgentDayTaskList(ctx.agentId, ctx.dateStr)
+                : [];
             const primary = list.length ? list[0].code : 'R';
-            // Commentaires TOUJOURS réinitialisés (nouvelle tâche, même si la case a déjà des tâches)
-            openTaskModal(false, ctx.agentId, ctx.agentName, ctx.dateStr, primary, '');
-            if (typeof clearStructuredTaskCommentInModal === 'function') {
-                clearStructuredTaskCommentInModal();
+
+            // Ouvrir le sélecteur de tâches + commentaires structurés (vides)
+            if (typeof openTaskModal === 'function') {
+                openTaskModal(false, ctx.agentId, ctx.agentName || ctx.agentId, ctx.dateStr, primary, '');
+            } else {
+                alert('Ouverture de la fenêtre de tâche indisponible.');
+                return;
             }
-            // Sécurité : vider explicitement chaque champ
-            try {
+            // Forcer commentaires à zéro après ouverture
+            setTimeout(function() {
+                if (typeof clearStructuredTaskCommentInModal === 'function') {
+                    clearStructuredTaskCommentInModal();
+                }
                 const t = document.getElementById('taskRdvTime');
                 const a = document.getElementById('taskRdvAddress');
                 const p = document.getElementById('taskRdvPhone');
@@ -9917,15 +9892,21 @@ function purgeReplacementArchives() {
                 if (p) p.value = '';
                 if (i) i.value = '';
                 if (h) h.value = '';
-            } catch (e) {}
-            try {
+                // Réassurer le mode append (openTaskModal ne doit pas l'effacer)
+                taskModalMultiMode = 'append';
                 const h2 = document.querySelector('#taskModal h2');
                 if (h2) {
                     h2.textContent = list.length
                         ? 'Ajouter une tâche (en plus)'
                         : 'Affecter une tâche';
                 }
-            } catch (e) {}
+                // Afficher la modale au-dessus du détail
+                const tm = document.getElementById('taskModal');
+                if (tm) {
+                    tm.style.display = 'flex';
+                    tm.style.zIndex = '10070';
+                }
+            }, 0);
         }
 
         function editAgentDayTaskFromDetail(index) {
