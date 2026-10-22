@@ -741,6 +741,177 @@
                 max-width: 220px;
             }
         }
+
+        /* ========== MOBILE / TABLETTE ========== */
+        @media (max-width: 768px) {
+            body {
+                font-size: 15px;
+            }
+            header {
+                padding: 8px 10px !important;
+                gap: 8px !important;
+            }
+            header h1 {
+                font-size: 1.05rem !important;
+            }
+            .nav-controls {
+                gap: 6px !important;
+                flex-wrap: wrap !important;
+            }
+            .nav-controls .btn,
+            .nav-controls button {
+                padding: 8px 10px !important;
+                font-size: 0.82rem !important;
+                min-height: 40px;
+            }
+            .view-mode-toggle button {
+                padding: 8px 12px !important;
+                min-height: 40px;
+            }
+            #currentWeekNumberBadge {
+                min-width: 48px;
+                padding: 6px 12px;
+                font-size: 0.95rem;
+            }
+            #currentMonthLabel {
+                min-width: 90px !important;
+                font-size: 0.85rem;
+            }
+
+            .table-container {
+                max-height: calc(100vh - 200px);
+                -webkit-overflow-scrolling: touch;
+                border-radius: 6px;
+            }
+
+            /* Colonnes jours plus larges (vue semaine lisible) */
+            #planningTable th {
+                min-width: 72px;
+                padding: 8px 4px !important;
+                font-size: 0.8rem;
+            }
+            #planningTable th .th-dayname {
+                font-size: 0.75rem;
+            }
+            #planningTable th .th-date {
+                font-size: 1.05rem;
+                margin-top: 2px;
+            }
+
+            /* Cases nettement plus hautes au doigt */
+            #planningTable tbody td {
+                height: 64px;
+                padding: 4px 3px !important;
+            }
+            .task-cell {
+                min-height: 56px;
+                padding: 10px 4px;
+                font-size: 1rem;
+                border-radius: 8px;
+                box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+            }
+            .task-cell .multi-task-badge {
+                font-size: 0.7rem;
+                padding: 3px 5px;
+                bottom: 3px;
+                right: 4px;
+            }
+            .task-cell-inherited {
+                min-height: 56px !important;
+            }
+
+            /* Colonne agent : un peu plus compacte, toujours sticky */
+            .sticky-col-1 {
+                min-width: 88px !important;
+                max-width: 120px;
+                font-size: 0.8rem;
+                padding-left: 6px !important;
+            }
+            .sticky-col-2 {
+                min-width: 36px !important;
+            }
+            table.collapsed-skills .sticky-col-2 {
+                width: 28px !important;
+                min-width: 28px !important;
+            }
+
+            /* Boutons header secondaires plus compacts */
+            header .btn-purple,
+            header .btn-secondary,
+            header #settingsBtn,
+            header #archivesHubBtn,
+            header #modLogBtn {
+                padding: 7px 9px !important;
+                font-size: 0.78rem !important;
+            }
+
+            /* Modales plein largeur mobile */
+            .modal-content {
+                width: 96vw !important;
+                max-width: 96vw !important;
+                max-height: 92vh !important;
+                margin: 4px;
+            }
+            #cellTasksDetailModal .modal-content {
+                width: 96vw !important;
+            }
+            #taskModal .modal-content {
+                width: 96vw !important;
+            }
+
+            /* Cibles tactiles actions dans liste tâches */
+            .ctd-actions .btn,
+            .ctd-end-actions .btn {
+                min-height: 42px;
+                padding: 8px 12px !important;
+                font-size: 0.9rem !important;
+            }
+            .ctd-end-comment textarea {
+                min-height: 72px;
+                font-size: 1rem;
+            }
+        }
+
+        /* Très petits écrans */
+        @media (max-width: 420px) {
+            #planningTable th {
+                min-width: 58px;
+                padding: 6px 2px !important;
+            }
+            #planningTable tbody td {
+                height: 58px;
+            }
+            .task-cell {
+                min-height: 50px;
+                font-size: 0.92rem;
+                padding: 8px 2px;
+            }
+            .sticky-col-1 {
+                min-width: 72px !important;
+                max-width: 96px;
+                font-size: 0.75rem;
+            }
+            #currentMonthLabel {
+                font-size: 0.78rem;
+            }
+        }
+
+        /* Vue semaine : cases encore un peu plus généreuses */
+        body.view-week #planningTable tbody td {
+            height: 48px;
+        }
+        body.view-week .task-cell {
+            min-height: 40px;
+        }
+        @media (max-width: 768px) {
+            body.view-week #planningTable tbody td {
+                height: 72px;
+            }
+            body.view-week .task-cell {
+                min-height: 64px;
+                font-size: 1.05rem;
+            }
+        }
         th, td { border-right: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color); padding: 4px; text-align: center; white-space: nowrap; }
         th { background-color: var(--primary); color: white; position: sticky; top: 0; z-index: 10; }
         
@@ -791,24 +962,42 @@
         .task-cell {
             cursor: pointer;
             font-weight: bold;
-            border-radius: 4px;
-            padding: 4px;
+            border-radius: 6px;
+            padding: 6px 4px;
+            min-height: 36px;
+            height: 100%;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
             user-select: none;
             position: relative;
             transition: transform 0.1s, box-shadow 0.1s;
+            font-size: 0.85rem;
+            line-height: 1.15;
         }
         .task-cell .multi-task-badge {
             position: absolute;
-            bottom: 1px;
-            right: 2px;
+            bottom: 2px;
+            right: 3px;
             background: #2c3e50;
             color: #fff;
-            font-size: 0.55rem;
+            font-size: 0.6rem;
             font-weight: 800;
             line-height: 1;
-            padding: 1px 3px;
-            border-radius: 6px;
+            padding: 2px 4px;
+            border-radius: 8px;
             pointer-events: none;
+        }
+        /* Lignes un peu plus hautes par défaut */
+        #planningTable tbody td {
+            height: 42px;
+            vertical-align: middle;
+        }
+        #planningTable tbody td.sticky-col-1,
+        #planningTable tbody td.sticky-col-2 {
+            height: auto;
         }
         .cell-task-detail-item {
             border: 1px solid #e0e0e0;
@@ -3929,6 +4118,8 @@ if (resetAckBtn) {
             const btnM = document.getElementById('viewModeMonthBtn');
             if (btnW) btnW.classList.toggle('active', mode === 'week');
             if (btnM) btnM.classList.toggle('active', mode === 'month');
+            document.body.classList.toggle('view-week', mode === 'week');
+            document.body.classList.toggle('view-month', mode === 'month');
             updateNavButtonLabels();
             updateMonthNavEnabledState();
             renderAll(false);
@@ -4170,6 +4361,8 @@ if (resetAckBtn) {
          * @param {boolean} [shouldSave=false] - true pour pousser l'état vers Firebase
          */
         function renderAll(save = true) {
+            document.body.classList.toggle('view-week', planningViewMode === 'week');
+            document.body.classList.toggle('view-month', planningViewMode === 'month');
             updateCurrentMonthLabel();
             computeDailyAlertColors(getVisibleDates());
             updateDashboard();
@@ -4893,7 +5086,7 @@ if (resetAckBtn) {
         function setAgentDayTaskList(agentId, dateStr, list) {
             if (!agentId || !dateStr) return;
             const key = getAgentDayTaskListKey(agentId, dateStr);
-            const clean = (Array.isArray(list) ? list : []).filter(function(e) {
+            let clean = (Array.isArray(list) ? list : []).filter(function(e) {
                 return e && (e.code || e.taskCode);
             }).map(function(e) {
                 const structured = {
