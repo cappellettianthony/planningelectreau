@@ -334,6 +334,20 @@
         }
         .view-mode-toggle button.active { background: var(--accent); color: white; }
         #monthNavPrev:disabled, #monthNavNext:disabled { opacity: 0.45; cursor: not-allowed; }
+        #currentWeekNumberBadge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 42px;
+            padding: 4px 10px;
+            font-weight: 800;
+            font-size: 0.85rem;
+            color: #fff;
+            background: #2980b9;
+            border-radius: 14px;
+            letter-spacing: 0.02em;
+        }
+        #currentWeekNumberBadge.hidden-badge { display: none; }
         .dashboard-month-label { font-size: 0.85rem; color: #2980b9; font-weight: bold; margin-left: 8px; }
 
         /* Panneau latéral des tâches de remplacement */
@@ -1490,15 +1504,16 @@
             <select id="yearSelect" onchange="changeYear(this.value)"></select>
 
             <div class="view-mode-toggle" title="Affichage du planning">
-                <button type="button" id="viewModeMonthBtn" class="active" onclick="setPlanningViewMode('month')">Mois</button>
-                <button type="button" id="viewModeYearBtn" onclick="setPlanningViewMode('year')">Année</button>
+                <button type="button" id="viewModeWeekBtn" class="active" onclick="setPlanningViewMode('week')">Semaine</button>
+                <button type="button" id="viewModeMonthBtn" onclick="setPlanningViewMode('month')">Mois</button>
             </div>
 
-            <button class="btn btn-secondary" id="monthNavPrev" onclick="navigateMonths(-1)" title="Mois précédent">◄ Mois</button>
+            <button class="btn btn-secondary" id="monthNavPrev" onclick="navigateMonths(-1)" title="Semaine précédente">◄ Semaine</button>
+            <span id="currentWeekNumberBadge" title="Numéro de semaine ISO">S.—</span>
             <span id="currentMonthLabel" style="font-weight:bold; min-width:110px; text-align:center;"></span>
-            <button class="btn btn-secondary" id="monthNavNext" onclick="navigateMonths(1)" title="Mois suivant">Mois ►</button>
+            <button class="btn btn-secondary" id="monthNavNext" onclick="navigateMonths(1)" title="Semaine suivante">Semaine ►</button>
             <button class="btn" onclick="goToToday()">Aujourd'hui</button>
-            <input type="date" id="datePicker" onchange="jumpToDate(this.value)" title="Aller au mois de cette date">
+            <input type="date" id="datePicker" onchange="jumpToDate(this.value)" title="Aller à cette date">
         </div>
 
         <div style="display:flex; gap:8px; flex-wrap: wrap;">
@@ -2596,9 +2611,16 @@
         let currentYear = new Date().getFullYear();
         let minYearAvailable = currentYear - 1;
         let maxYearAvailable = currentYear + 2; // N-1, N, N+1, N+2
-        // startDate définit le mois affiché (1er jour du mois en pratique)
-        let startDate = new Date(currentYear, new Date().getMonth(), 1);
-        let planningViewMode = 'month'; // 'month' | 'year'
+        // startDate : lundi de la semaine affichée (mode week) ou 1er du mois (mode month)
+        let startDate = (function() {
+            const d = new Date();
+            const day = d.getDay();
+            const diff = day === 0 ? -6 : 1 - day;
+            d.setDate(d.getDate() + diff);
+            d.setHours(0, 0, 0, 0);
+            return d;
+        })();
+        let planningViewMode = 'week'; // 'week' | 'month'
         let dashboardStartDate = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
         let selectedColumnDate = null; 
 
@@ -3806,27 +3828,124 @@ if (resetAckBtn) {
             currentYear = parseInt(val); 
             ensureYearExists(currentYear);
             const month = startDate.getMonth();
-            startDate = new Date(currentYear, month, 1);
-            dashboardStartDate = new Date(currentYear, dashboardStartDate.getMonth(), 1);
+            const day = startDate.getDate();
+            if (planningViewMode === 'week') {
+                // Conserver la semaine relative dans la nouvelle année
+                const ref = new Date(currentYear, month, Math.min(day, 28));
+                startDate = getMondayOfWeek(ref);
+            } else {
+                startDate = new Date(currentYear, month, 1);
+            }
+            dashboardStartDate = new Date(currentYear, month, 1);
             if (typeof propagateTeamRotations === 'function') propagateTeamRotations(false);
             syncDatePicker(); 
             renderAll(false); 
         }
 
+
+        // --- Swipe horizontal : changer de semaine / mois ---
+        (function bindPlanningSwipe() {
+            if (window._planningSwipeBound) return;
+            window._planningSwipeBound = true;
+            let startX = 0, startY = 0, tracking = false;
+            function onStart(e) {
+                const t = e.changedTouches && e.changedTouches[0];
+                if (!t) return;
+                startX = t.clientX;
+                startY = t.clientY;
+                tracking = true;
+            }
+            function onEnd(e) {
+                if (!tracking) return;
+                tracking = false;
+                const t = e.changedTouches && e.changedTouches[0];
+                if (!t) return;
+                const dx = t.clientX - startX;
+                const dy = t.clientY - startY;
+                // Swipe horizontal dominant, seuil 60 px
+                if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+                // Ne pas interférer si un modal est ouvert
+                const openModal = document.querySelector('.modal[style*="display: flex"], .modal[style*="display:flex"]');
+                if (openModal) return;
+                if (dx < 0) {
+                    // swipe gauche → période suivante
+                    if (typeof navigateMonths === 'function') navigateMonths(1);
+                } else {
+                    if (typeof navigateMonths === 'function') navigateMonths(-1);
+                }
+            }
+            document.addEventListener('DOMContentLoaded', function() {
+                const el = document.querySelector('.table-container') || document.getElementById('planningTable');
+                if (!el) return;
+                el.addEventListener('touchstart', onStart, { passive: true });
+                el.addEventListener('touchend', onEnd, { passive: true });
+            });
+            // Si DOM déjà prêt
+            if (document.readyState !== 'loading') {
+                const el = document.querySelector('.table-container') || document.getElementById('planningTable');
+                if (el && !el._swipeBound) {
+                    el._swipeBound = true;
+                    el.addEventListener('touchstart', onStart, { passive: true });
+                    el.addEventListener('touchend', onEnd, { passive: true });
+                }
+            }
+        })();
+
+
+        /** Lundi de la semaine contenant la date d */
+        function getMondayOfWeek(d) {
+            const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+            const day = date.getDay(); // 0 = dimanche
+            const diff = day === 0 ? -6 : 1 - day;
+            date.setDate(date.getDate() + diff);
+            date.setHours(0, 0, 0, 0);
+            return date;
+        }
+
+        /** Numéro de semaine ISO (1–53) */
+        function getISOWeekNumber(d) {
+            const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+            const dayNum = date.getUTCDay() || 7;
+            date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+            const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+            return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+        }
+
         /**
-         * Bascule l'affichage du planning entre vue « Mois » et vue « Année ».
-         * @param {'month'|'year'} mode
+         * Bascule l'affichage du planning entre vue « Semaine » et vue « Mois ».
+         * @param {'week'|'month'} mode
          */
         function setPlanningViewMode(mode) {
-            if (mode !== 'month' && mode !== 'year') return;
+            if (mode !== 'week' && mode !== 'month') return;
             planningViewMode = mode;
             selectedColumnDate = null;
+            if (mode === 'week') {
+                startDate = getMondayOfWeek(startDate);
+            } else {
+                startDate = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+            }
+            dashboardStartDate = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+            const btnW = document.getElementById('viewModeWeekBtn');
             const btnM = document.getElementById('viewModeMonthBtn');
-            const btnY = document.getElementById('viewModeYearBtn');
+            if (btnW) btnW.classList.toggle('active', mode === 'week');
             if (btnM) btnM.classList.toggle('active', mode === 'month');
-            if (btnY) btnY.classList.toggle('active', mode === 'year');
+            updateNavButtonLabels();
             updateMonthNavEnabledState();
             renderAll(false);
+        }
+
+        function updateNavButtonLabels() {
+            const prev = document.getElementById('monthNavPrev');
+            const next = document.getElementById('monthNavNext');
+            const isWeek = planningViewMode === 'week';
+            if (prev) {
+                prev.textContent = isWeek ? '◄ Semaine' : '◄ Mois';
+                prev.title = isWeek ? 'Semaine précédente' : 'Mois précédent';
+            }
+            if (next) {
+                next.textContent = isWeek ? 'Semaine ►' : 'Mois ►';
+                next.title = isWeek ? 'Semaine suivante' : 'Mois suivant';
+            }
         }
 
         /**
@@ -3852,43 +3971,28 @@ if (resetAckBtn) {
          * @param {number} delta - +1 mois suivant, -1 mois précédent
          */
         function navigateMonths(delta) {
-            if (planningViewMode === 'year') {
-                if (!isDashboardOpen()) return;
-                dashboardStartDate = new Date(
-                    dashboardStartDate.getFullYear(),
-                    dashboardStartDate.getMonth() + delta,
-                    1
-                );
-                if (dashboardStartDate.getFullYear() !== currentYear) {
-                    currentYear = dashboardStartDate.getFullYear();
-                    ensureYearExists(currentYear);
-                    document.getElementById('yearSelect').value = currentYear;
-                    startDate = new Date(currentYear, startDate.getMonth(), 1);
-                }
-                updateDashboard();
-                updateDashboardMonthLabel();
-                updateCurrentMonthLabel();
-                return;
+            if (planningViewMode === 'week') {
+                const mon = getMondayOfWeek(startDate);
+                startDate = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + (delta * 7));
+            } else {
+                startDate = new Date(startDate.getFullYear(), startDate.getMonth() + delta, 1);
             }
-            startDate = new Date(startDate.getFullYear(), startDate.getMonth() + delta, 1);
             dashboardStartDate = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
             currentYear = startDate.getFullYear();
             ensureYearExists(currentYear);
-            document.getElementById('yearSelect').value = currentYear;
-            syncDatePicker();
+            const ys = document.getElementById('yearSelect');
+            if (ys) ys.value = currentYear;
+            if (typeof updateDashboard === 'function') updateDashboard();
+            if (typeof updateDashboardMonthLabel === 'function') updateDashboardMonthLabel();
+            updateCurrentMonthLabel();
             renderAll(false);
         }
 
-        /**
-         * Active ou désactive les boutons « Mois précédent / suivant »
-         * selon les bornes minYearAvailable / maxYearAvailable.
-         */
         function updateMonthNavEnabledState() {
             const prev = document.getElementById('monthNavPrev');
             const next = document.getElementById('monthNavNext');
-            const disable = (planningViewMode === 'year' && !isDashboardOpen());
-            if (prev) prev.disabled = disable;
-            if (next) next.disabled = disable;
+            if (prev) prev.disabled = false;
+            if (next) next.disabled = false;
         }
 
         /**
@@ -3898,11 +4002,16 @@ if (resetAckBtn) {
         function goToToday() { 
             const now = new Date();
             const todayStr = formatDate(now);
-            startDate = new Date(now.getFullYear(), now.getMonth(), 1); 
+            if (planningViewMode === 'week') {
+                startDate = getMondayOfWeek(now);
+            } else {
+                startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+            }
             dashboardStartDate = new Date(now.getFullYear(), now.getMonth(), 1);
             currentYear = startDate.getFullYear(); 
             ensureYearExists(currentYear); 
-            document.getElementById('yearSelect').value = currentYear; 
+            const ys = document.getElementById('yearSelect');
+            if (ys) ys.value = currentYear; 
             syncDatePicker(); 
             renderAll(false);
             scrollToDateInPlanning(todayStr);
@@ -3948,11 +4057,16 @@ if (resetAckBtn) {
         function jumpToDate(dateStr) { 
             if (dateStr) { 
                 const d = parseDate(dateStr); 
-                startDate = new Date(d.getFullYear(), d.getMonth(), 1);
+                if (planningViewMode === 'week') {
+                    startDate = getMondayOfWeek(d);
+                } else {
+                    startDate = new Date(d.getFullYear(), d.getMonth(), 1);
+                }
                 dashboardStartDate = new Date(d.getFullYear(), d.getMonth(), 1);
                 currentYear = startDate.getFullYear(); 
                 ensureYearExists(currentYear); 
-                document.getElementById('yearSelect').value = currentYear; 
+                const ys = document.getElementById('yearSelect');
+                if (ys) ys.value = currentYear; 
                 syncDatePicker();
                 renderAll(false);
                 scrollToDateInPlanning(dateStr);
@@ -3980,14 +4094,33 @@ if (resetAckBtn) {
          */
         function updateCurrentMonthLabel() {
             const el = document.getElementById('currentMonthLabel');
+            const weekBadge = document.getElementById('currentWeekNumberBadge');
             if (!el) return;
-            if (planningViewMode === 'year') {
-                el.textContent = 'Année ' + currentYear;
+            if (planningViewMode === 'week') {
+                const mon = getMondayOfWeek(startDate);
+                const sun = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6);
+                const w = getISOWeekNumber(mon);
+                const fmt = function(d) {
+                    return String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0');
+                };
+                el.textContent = fmt(mon) + ' → ' + fmt(sun) + ' ' + mon.getFullYear();
+                if (weekBadge) {
+                    weekBadge.textContent = 'S.' + w;
+                    weekBadge.classList.remove('hidden-badge');
+                    weekBadge.title = 'Semaine ISO n°' + w;
+                }
             } else {
                 const label = startDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
                 el.textContent = label.charAt(0).toUpperCase() + label.slice(1);
+                if (weekBadge) {
+                    // Afficher quand même la semaine du 1er du mois (ou de startDate)
+                    const w = getISOWeekNumber(startDate);
+                    weekBadge.textContent = 'S.' + w;
+                    weekBadge.classList.remove('hidden-badge');
+                    weekBadge.title = 'Semaine ISO n°' + w + ' (réf. début de période)';
+                }
             }
-            updateDashboardMonthLabel();
+            if (typeof updateDashboardMonthLabel === 'function') updateDashboardMonthLabel();
             updateMonthNavEnabledState();
         }
 
@@ -4466,18 +4599,15 @@ if (resetAckBtn) {
          * @returns {string[]}
          */
         function getVisibleDates() {
-            if (planningViewMode === 'year') {
-                const year = currentYear;
+            if (planningViewMode === 'week') {
+                const mon = getMondayOfWeek(startDate);
                 const dates = [];
-                const start = new Date(year, 0, 1);
-                const end = new Date(year, 11, 31);
-                let curr = new Date(start);
-                while (curr <= end) {
-                    dates.push(new Date(curr));
-                    curr.setDate(curr.getDate() + 1);
+                for (let i = 0; i < 7; i++) {
+                    dates.push(new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + i));
                 }
                 return dates;
             }
+            // Mode mois
             const year = startDate.getFullYear();
             const month = startDate.getMonth();
             const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -4549,8 +4679,8 @@ if (resetAckBtn) {
             const isCollapsed = table.classList.contains('collapsed-skills');
             const btnText = isCollapsed ? '➕' : '➖';
 
-            if (planningViewMode === 'year') table.classList.add('year-view');
-            else table.classList.remove('year-view');
+            // Ancienne vue année retirée — pas de classe year-view
+            table.classList.remove('year-view');
             
             headerTr.innerHTML = `
                 <th class="sticky-col-1">Équipe / Agent</th>
@@ -4560,7 +4690,7 @@ if (resetAckBtn) {
                 </th>`;
 
             const todayStr = formatDate(new Date());
-            const isYear = planningViewMode === 'year';
+            const isYear = false; // vue année retirée
 
             getVisibleDates().forEach(d => {
                 const th = document.createElement('th');
@@ -4681,6 +4811,27 @@ if (resetAckBtn) {
             return String(agentId) + '_' + String(dateStr);
         }
 
+        /** Convertit une heure RDV (08:30, 8h30, 8h…) en minutes depuis minuit ; sans heure → fin de liste */
+        function parseRdvTimeToMinutes(t) {
+            if (t == null || String(t).trim() === '') return 99999;
+            const s = String(t).trim().toLowerCase().replace(/\s/g, '');
+            const m = s.match(/^(\d{1,2})(?:[:h](\d{2}))?/);
+            if (!m) return 99999;
+            const h = parseInt(m[1], 10);
+            const min = m[2] != null ? parseInt(m[2], 10) : 0;
+            if (isNaN(h) || h > 23 || isNaN(min) || min > 59) return 99999;
+            return h * 60 + min;
+        }
+
+        function sortTaskListByRdvTime(list) {
+            return (list || []).slice().sort(function(a, b) {
+                const da = parseRdvTimeToMinutes(a && a.rdvTime);
+                const db = parseRdvTimeToMinutes(b && b.rdvTime);
+                if (da !== db) return da - db;
+                return 0;
+            });
+        }
+
         /**
          * Liste des tâches d'un agent pour un jour (multi-tâches).
          * Source : agentTaskLists, sinon repli sur agentSchedules + taskDescriptions.
@@ -4690,7 +4841,7 @@ if (resetAckBtn) {
             if (!agentId || !dateStr) return [];
             const key = getAgentDayTaskListKey(agentId, dateStr);
             if (agentTaskLists && Array.isArray(agentTaskLists[key]) && agentTaskLists[key].length) {
-                return agentTaskLists[key].map(function(e) {
+                const mapped = agentTaskLists[key].map(function(e) {
                     if (!e) return null;
                     if (typeof e === 'string') {
                         return { code: e, description: '', rdvTime: '', rdvAddress: '', rdvPhone: '', rdvIntervention: '', endComment: '', endPhotos: [], completed: false };
@@ -4715,18 +4866,19 @@ if (resetAckBtn) {
                         completed: !!e.completed
                     };
                 }).filter(function(e) { return e && e.code; });
+                return sortTaskListByRdvTime(mapped);
             }
             if (agentSchedules[agentId] && agentSchedules[agentId][dateStr] !== undefined) {
                 const raw = agentSchedules[agentId][dateStr];
                 if (Array.isArray(raw)) {
-                    return raw.map(function(e) {
+                    return sortTaskListByRdvTime(raw.map(function(e) {
                         if (!e) return null;
                         if (typeof e === 'string') return { code: e, description: '' };
                         return {
                             code: String(e.code || e.taskCode || 'R'),
                             description: String(e.description != null ? e.description : (e.desc || ''))
                         };
-                    }).filter(function(e) { return e && e.code; });
+                    }).filter(function(e) { return e && e.code; }));
                 }
                 const desc = (taskDescriptions && taskDescriptions[key] != null) ? String(taskDescriptions[key]) : '';
                 return [{ code: String(raw), description: desc }];
@@ -4773,6 +4925,7 @@ if (resetAckBtn) {
                     completed: !!e.completed
                 };
             });
+            clean = sortTaskListByRdvTime(clean);
             if (!agentTaskLists) agentTaskLists = {};
             if (!clean.length) {
                 if (agentTaskLists[key]) delete agentTaskLists[key];
